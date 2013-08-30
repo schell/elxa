@@ -32,7 +32,8 @@ executable elxa
     snaplet-acid-state           >= 0.2.4,
     transformers                 >= 0.3.0.0,
     mongoDB                      >= 1.4.1,
-    snaplet-mongodb-minimalistic >= 0.0.6.10
+    snaplet-mongodb-minimalistic >= 0.0.6.10,
+    configurator                 >= 0.2.0.2
 
 
   if impl(ghc >= 6.12.0)

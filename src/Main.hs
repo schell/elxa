@@ -18,7 +18,6 @@ module Main where
 ------------------------------------------------------------------------------
 import           Control.Exception (SomeException, try)
 import qualified Data.Text as T
-import           Data.Monoid
 import           Snap.Http.Server
 import           Snap.Snaplet
 import           Snap.Snaplet.Config
@@ -68,7 +67,7 @@ main = do
     -- loadSnapTH is a list of additional directories to watch for changes to
     -- trigger reloads in development mode. It doesn't need to include source
     -- directories, those are picked up automatically by the splice.
-    ((conf, _), site, cleanup) <- $(loadSnapTH [| getConf |]
+    (conf, site, cleanup) <- $(loadSnapTH [| getConf |]
                                           'getActions
                                           ["snaplets/heist/templates"])
 
@@ -86,17 +85,8 @@ main = do
 --
 -- This action is only run once, regardless of whether development or
 -- production mode is in use.
-
-type ElxaConfig = ()
-type ElxaSnapConfig = (Config Snap AppConfig, ElxaConfig)
-
-elxaOptions :: [a]
-elxaOptions = []
-
-getConf :: IO ElxaSnapConfig
-getConf = do
-    conf <- extendedCommandLineConfig elxaOptions mappend defaultConfig
-    return (conf, ())
+getConf :: IO (Config Snap AppConfig)
+getConf = commandLineAppConfig defaultConfig
 
 
 ------------------------------------------------------------------------------
@@ -111,8 +101,8 @@ getConf = do
 --
 -- This sample doesn't actually use the config passed in, but more
 -- sophisticated code might.
-getActions :: ElxaSnapConfig -> IO (Snap (), IO ())
-getActions (conf, elxaConf) = do
+getActions :: Config Snap AppConfig -> IO (Snap (), IO ())
+getActions conf = do
     (msgs, site, cleanup) <- runSnaplet
         (appEnvironment =<< getOther conf) app
     hPutStrLn stderr $ T.unpack msgs
