@@ -6,14 +6,13 @@ import qualified Heist.Interpreted      as I
 import qualified Data.Text              as T
 import qualified Github.Repos  as GH
 
-------------------------------------------------------------------------------
+
 -- | Renders a list of github issues in a table.
 renderIssues :: Monad m => [GH.Issue] -> I.Splice m
 renderIssues = I.callTemplate "_issues" . splices
     where splices is = [("issues", I.mapSplices renderIssue is)]
 
 
-------------------------------------------------------------------------------
 -- | Renders a github issue in a tr.
 renderIssue :: Monad m => GH.Issue -> I.Splice m
 renderIssue = I.callTemplate "_issue" . splices
@@ -23,12 +22,10 @@ renderIssue = I.callTemplate "_issue" . splices
           texts   i = map (second T.pack) $ fields i
           fields  i = [ ("issueTitle", GH.issueTitle i)
                       , ("issueUpdatedAt", show $ GH.fromGithubDate $ GH.issueUpdatedAt i)
-                      , ("issueId", show $ GH.issueId i)
                       , ("issueNumber", show $ GH.issueNumber i)
                       ]
 
 
-------------------------------------------------------------------------------
 -- | Renders a github user as a link.
 renderOwner :: Monad m => GH.GithubOwner -> I.Splice m
 renderOwner u = I.callTemplate "_userLink" $ texts u

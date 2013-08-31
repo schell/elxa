@@ -11,7 +11,4 @@
     <td>
         <issueUpdatedAt />
     </td>
-    <td>
-        <issueId />
-    </td>
 </tr>

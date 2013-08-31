@@ -5,7 +5,6 @@
             <th>Issue Title</th>
             <th>Issue User</th>
             <th>Issue Updated</th>
-            <th>Issue Id</th>
         </tr>
     </thead>
     <tbody>

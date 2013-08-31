@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- |
 -- Module      :  Site
 -- Copyright   :  Schell Scivally August 29, 2013
@@ -15,12 +15,10 @@ module Site
   ) where
 
 import           Control.Applicative
-import           Control.Arrow          ( second )
 import           Control.Monad.IO.Class ( liftIO )
 import           Data.ByteString        ( ByteString )
 import           Data.Maybe
 import           Database.MongoDB hiding ( auth )
-import           Text.Read              ( readEither )
 import           Snap.Core
 import           Snap.Snaplet
 import           Snap.Snaplet.Auth
@@ -30,8 +28,8 @@ import           Snap.Snaplet.Session.Backends.CookieSession
 import           Snap.Snaplet.MongoDB
 import           Snap.Util.FileServe
 import qualified Heist.Interpreted      as I
-import qualified Data.ByteString.Char8  as C
 import qualified Data.Text              as T
+import qualified Data.ByteString.Char8  as C
 import qualified Data.Configurator      as Cfg
 import           Application
 import           Github.Handlers
@@ -65,6 +63,29 @@ handleNewUser = method GET handleForm <|> method POST handleFormSubmit
     handleFormSubmit = registerUser "login" "password" >> redirect "/"
 
 
+
+handleGithubBounty :: Handler App App ()
+handleGithubBounty = method GET $ do
+    eParams <- getIssueParams
+    case eParams of
+        Left _          -> printStuff msg
+        Right (u, r, i) -> do cfg      <- getSnapletUserConfig
+                              mTesting <- liftIO $ Cfg.lookup cfg "testing"
+                              case mTesting of
+                                  Just True  -> createTestBounty u r i
+                                  Just False -> createBounty u r i
+                                  Nothing    -> printStuff "Can't create bounty."
+  where msg = "To open a github bounty you need a user, repo and issue number."
+
+
+
+createTestBounty :: String -> String -> Int -> Handler App App ()
+createTestBounty u r i = printStuff $ "Test! " ++  u ++ r ++ show i
+
+
+createBounty :: String -> String -> Int -> Handler App App ()
+createBounty u r i = printStuff $ "Real! " ++  u ++ r ++ show i
+
 -- | The application's routes.
 routes :: [(ByteString, Handler App App ())]
 routes = [ ("/login",    with auth handleLoginSubmit)
@@ -75,7 +96,8 @@ routes = [ ("/login",    with auth handleLoginSubmit)
          , ("/github/:user/:repo", handleGithubUserRepo)
          , ("/github/:user/:repo/issues", handleGithubUserRepoIssues)
          , ("/github/:user/:repo/issue/:issue", handleGithubUserRepoIssue)
-         , ("",          serveDirectory "static")
+         , ("/bounty/github/:user/:repo/:issue", handleGithubBounty)
+         , ("", serveDirectory "static")
          ]
 
 

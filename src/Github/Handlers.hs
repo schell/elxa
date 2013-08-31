@@ -66,27 +66,51 @@ handleGithubUserRepoIssues = method GET $ do
                       tSp           = I.textSplice . T.pack
 
 
+type GithubIssueParams = (String, String, Int)
+
 -- | Handles showing github issue info.
 handleGithubUserRepoIssue :: Handler App App ()
 handleGithubUserRepoIssue = method GET $ do
-    mUser  <- (C.unpack <$>) <$> getParam "user"
-    mRepo  <- (C.unpack <$>) <$> getParam "repo"
-    mIssue <- (C.unpack <$>) <$> getParam "issue"
-    if isNothing mUser || isNothing mRepo || isNothing mIssue
-      then printStuff "No issue specified."
-      else do let [user, repo, issue] = fmap fromJust [mUser, mRepo, mIssue]
-                  eNum                = readEither issue :: Either String Int
-              either printLeft (printIssue user repo) eNum
-                where printLeft        = printStuff
-                      printErr         = printStuff . show
-                      tSp              = I.textSplice . T.pack
-                      contentSplices i = [ ("contentTitle", tSp "Issues")
-                                         , ("contentBody", issues i)
-                                         ]
-                      issues           = renderIssues . (:[])
-                      printIssues i    = heistLocal (I.bindSplices $ contentSplices i) $ render "content"
-                      printIssue u r i = do eIssue <- liftIO $ GH.issue u r i
-                                            either printErr printIssues eIssue
+    eParams <- getIssueParams
+    case eParams of
+        Left s  -> printStuff s
+        Right (user, repo, issue) -> printIssue user repo issue
+                         where printErr         = printStuff . show
+                               tSp              = I.textSplice . T.pack
+                               contentSplices i = [ ("contentTitle", tSp "Issues")
+                                                  , ("contentBody", issues i)
+                                                  ]
+                               issues           = renderIssues . (:[])
+                               printIssues i    = heistLocal (I.bindSplices $ contentSplices i) $ render "content"
+                               printIssue u r i = do eI <- liftIO $ GH.issue u r i
+                                                     either printErr printIssues eI
 
+
+getStringParam :: C.ByteString -> Handler App App (Maybe String)
+getStringParam p = do
+    mV <- getParam p
+    return $ case mV of
+        Just v  -> Just $ C.unpack v
+        Nothing -> Nothing
+
+getIssueParam :: Handler App App (Either String Int)
+getIssueParam = do
+    mIssue <- getStringParam "issue"
+    let eNum = case mIssue of
+                   Just i  -> readEither i :: Either String Int
+                   Nothing -> Left "No issue specified."
+    return eNum
+
+
+getIssueParams :: Handler App App (Either String GithubIssueParams)
+getIssueParams = do
+    mUser  <- getStringParam "user"
+    mRepo  <- getStringParam "repo"
+    eIssue <- getIssueParam
+    return $ case (mUser, mRepo, eIssue) of
+        (Nothing, _, _) -> Left "No user specified."
+        (_, Nothing, _) -> Left "No repo specified."
+        (_, _, Left s)  -> Left s
+        (Just u, Just r, Right i) -> Right (u, r, i)
 
 
