@@ -6,6 +6,7 @@
             <th>Bounty User</th>
             <th>Bounty Repo</th>
             <th>Bounty Issue</th>
+            <th>Bounty Status</th>
         </tr>
     </thead>
     <tbody>

@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, ExtendedDefaultRules #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- |
 -- Module      :  Site
 -- Copyright   :  Schell Scivally August 29, 2013
@@ -35,17 +35,6 @@ import           Bounty
 import           Github.Handlers
 
 
-errors :: Int -> String
-errors 404 = "URL not found :("
-errors _   = "Unknown error."
-
-
-handleHttpErr :: HasHeist b => Int -> Handler b v ()
-handleHttpErr c = do
-    modifyResponse (setResponseCode c)
-    printStuff $ errors c
-
-
 handleLogin :: Maybe T.Text -> Handler App (AuthManager App) ()
 handleLogin authError = heistLocal (I.bindSplices errs) $ render "login"
   where
@@ -72,54 +61,6 @@ handleNewUser = method GET handleForm <|> method POST handleFormSubmit
   where
     handleForm = render "new_user"
     handleFormSubmit = registerUser "login" "password" >> redirect "/"
-
-
-handleGithubBounty :: Handler App App ()
-handleGithubBounty = method GET $ do
-    eParams <- getIssueParams
-    case eParams of
-        Left _          -> printStuff msg
-        Right (u, r, i) -> do --cfg      <- getSnapletUserConfig
-                              --mTesting <- liftIO $ Cfg.lookup cfg "testing"
-                              isTesting <- getIsTestingEnv
-                              let b = GithubBounty u' r' i BountyAwaitingFunds
-                                  [u',r'] = fmap T.pack [u,r]
-                              if isTesting then createTestBounty b else createBounty b
-  where msg = "To open a github bounty you need a user, repo and issue number."
-
-
-handleBountyStatus :: Handler App App ()
-handleBountyStatus = method GET $ do
-    mBounty <- getStringParam "bounty"
-    case mBounty of
-        Nothing  -> printStuff "Could not parse bounty."
-        Just bId -> do mB <- findBounty bId
-                       case mB of
-                           Nothing -> printStuff "Could not find bounty."
-                           Just b  -> printStuff $ show b
-
-
-handleProgressTestBountyStatus :: Handler App b ()
-handleProgressTestBountyStatus = do
-    isTesting <- getIsTestingEnv
-    if isTesting then progressTestBounty else handleHttpErr 404
-
-
-getIsTestingEnv :: Handler a b Bool
-getIsTestingEnv = do
-    cfg   <- getSnapletUserConfig
-    mTest <- liftIO $ Cfg.lookup cfg "testing"
-    liftIO $ print mTest
-    case mTest of
-        Just True -> return True
-        _         -> return False
-
-
-progressTestBounty :: Handler App b ()
-progressTestBounty = do
-    True <- getIsTestingEnv
-    mBId <- getStringParam "bounty"
-    printStuff $ "Progressing bounty " ++ show mBId
 
 
 -- | The application's routes.

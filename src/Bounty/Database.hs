@@ -8,10 +8,13 @@ import Snap.Snaplet.MongoDB
 import Database.MongoDB
 import Control.Monad.State
 import Control.Monad.Trans.Control
+import Control.Applicative
 
 
-newUserRepoIssueTestBounty :: Bounty -> Action IO Value
-newUserRepoIssueTestBounty = insert "test_bounties" . bountyToFields
+newUserRepoIssueTestBounty :: (Applicative m, MonadIO m) => Bounty -> Action m Bounty
+newUserRepoIssueTestBounty b = do
+   oid <- insert "test_bounties" $ bountyToDoc b
+   return b { _id = cast' oid }
 
 
 findUserRepoIssueTestBounties :: (MonadBaseControl IO m, MonadIO m) => Bounty -> Action m [Document]
@@ -29,5 +32,4 @@ findBounty bId = do
     return $ case e of
         Left _ -> Nothing
         Right mB -> mB
-
 

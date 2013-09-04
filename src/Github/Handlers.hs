@@ -2,25 +2,19 @@
 module Github.Handlers where
 import           Control.Applicative
 import           Control.Monad.IO.Class ( liftIO )
-import           Data.Maybe
 import           Text.Read              ( readEither )
+import           Data.Maybe
 import           Snap.Core
 import           Snap.Snaplet
 import           Snap.Snaplet.Heist
 import           Application
 import           Github.Renders
+import           HandlerUtils
 import qualified Github.Repos  as GH
 import qualified Github.Issues as GH
 import qualified Heist.Interpreted      as I
 import qualified Data.ByteString.Char8  as C
 import qualified Data.Text              as T
-
-
--- | Helper for printing things.
-printStuff :: HasHeist b => String -> Handler b v ()
-printStuff stuff = heistLocal binding $ render "print"
-  where binding = I.bindSplice "stuff" tSplice
-        tSplice = I.textSplice $ T.pack stuff
 
 
 -- | Handles showing github things.
@@ -85,13 +79,6 @@ handleGithubUserRepoIssue = method GET $ do
                                printIssue u r i = do eI <- liftIO $ GH.issue u r i
                                                      either printErr printIssues eI
 
-
-getStringParam :: C.ByteString -> Handler App a (Maybe String)
-getStringParam p = do
-    mV <- getParam p
-    return $ case mV of
-        Just v  -> Just $ C.unpack v
-        Nothing -> Nothing
 
 getIssueParam :: Handler App a (Either String Int)
 getIssueParam = do
