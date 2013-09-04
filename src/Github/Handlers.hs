@@ -86,14 +86,14 @@ handleGithubUserRepoIssue = method GET $ do
                                                      either printErr printIssues eI
 
 
-getStringParam :: C.ByteString -> Handler App App (Maybe String)
+getStringParam :: C.ByteString -> Handler App a (Maybe String)
 getStringParam p = do
     mV <- getParam p
     return $ case mV of
         Just v  -> Just $ C.unpack v
         Nothing -> Nothing
 
-getIssueParam :: Handler App App (Either String Int)
+getIssueParam :: Handler App a (Either String Int)
 getIssueParam = do
     mIssue <- getStringParam "issue"
     let eNum = case mIssue of
@@ -102,7 +102,7 @@ getIssueParam = do
     return eNum
 
 
-getIssueParams :: Handler App App (Either String GithubIssueParams)
+getIssueParams :: Handler App a (Either String GithubIssueParams)
 getIssueParams = do
     mUser  <- getStringParam "user"
     mRepo  <- getStringParam "repo"

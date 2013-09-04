@@ -35,6 +35,17 @@ import           Bounty
 import           Github.Handlers
 
 
+errors :: Int -> String
+errors 404 = "URL not found :("
+errors _   = "Unknown error."
+
+
+handleHttpErr :: HasHeist b => Int -> Handler b v ()
+handleHttpErr c = do
+    modifyResponse (setResponseCode c)
+    printStuff $ errors c
+
+
 handleLogin :: Maybe T.Text -> Handler App (AuthManager App) ()
 handleLogin authError = heistLocal (I.bindSplices errs) $ render "login"
   where
@@ -67,15 +78,13 @@ handleGithubBounty :: Handler App App ()
 handleGithubBounty = method GET $ do
     eParams <- getIssueParams
     case eParams of
-        Left msg        -> printStuff msg
-        Right (u, r, i) -> do cfg      <- getSnapletUserConfig
-                              mTesting <- liftIO $ Cfg.lookup cfg "testing"
+        Left _          -> printStuff msg
+        Right (u, r, i) -> do --cfg      <- getSnapletUserConfig
+                              --mTesting <- liftIO $ Cfg.lookup cfg "testing"
+                              isTesting <- getIsTestingEnv
                               let b = GithubBounty u' r' i BountyAwaitingFunds
                                   [u',r'] = fmap T.pack [u,r]
-                              case mTesting of
-                                  Just True  -> createTestBounty b
-                                  Just False -> createBounty b
-                                  Nothing    -> printStuff "Can't create bounty."
+                              if isTesting then createTestBounty b else createBounty b
   where msg = "To open a github bounty you need a user, repo and issue number."
 
 
@@ -90,6 +99,29 @@ handleBountyStatus = method GET $ do
                            Just b  -> printStuff $ show b
 
 
+handleProgressTestBountyStatus :: Handler App b ()
+handleProgressTestBountyStatus = do
+    isTesting <- getIsTestingEnv
+    if isTesting then progressTestBounty else handleHttpErr 404
+
+
+getIsTestingEnv :: Handler a b Bool
+getIsTestingEnv = do
+    cfg   <- getSnapletUserConfig
+    mTest <- liftIO $ Cfg.lookup cfg "testing"
+    liftIO $ print mTest
+    case mTest of
+        Just True -> return True
+        _         -> return False
+
+
+progressTestBounty :: Handler App b ()
+progressTestBounty = do
+    True <- getIsTestingEnv
+    mBId <- getStringParam "bounty"
+    printStuff $ "Progressing bounty " ++ show mBId
+
+
 -- | The application's routes.
 routes :: [(ByteString, Handler App App ())]
 routes = [ ("/login",    with auth handleLoginSubmit)
@@ -102,6 +134,7 @@ routes = [ ("/login",    with auth handleLoginSubmit)
          , ("/github/:user/:repo/issue/:issue", handleGithubUserRepoIssue)
          , ("/bounty/github/:user/:repo/:issue", handleGithubBounty)
          , ("/bounty/:bounty", handleBountyStatus)
+         , ("/bounty/:bounty/progress", handleProgressTestBountyStatus)
          , ("", serveDirectory "static")
          ]
 
