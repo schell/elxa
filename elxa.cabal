@@ -33,7 +33,8 @@ executable elxa
     transformers                 >= 0.3.0.0,
     mongoDB                      >= 1.4.1,
     snaplet-mongodb-minimalistic >= 0.0.6.10,
-    configurator                 >= 0.2.0.2
+    configurator                 >= 0.2.0.2,
+    monad-control                >= 0.3.2.1
 
 
   if impl(ghc >= 6.12.0)

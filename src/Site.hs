@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, ExtendedDefaultRules #-}
 -- |
 -- Module      :  Site
 -- Copyright   :  Schell Scivally August 29, 2013
@@ -15,10 +15,10 @@ module Site
   ) where
 
 import           Control.Applicative
-import           Control.Monad.IO.Class ( liftIO )
-import           Data.ByteString        ( ByteString )
+import           Control.Monad.IO.Class      ( liftIO )
+import           Data.ByteString             ( ByteString )
 import           Data.Maybe
-import           Database.MongoDB hiding ( auth )
+import           Database.MongoDB hiding     ( auth )
 import           Snap.Core
 import           Snap.Snaplet
 import           Snap.Snaplet.Auth
@@ -29,9 +29,9 @@ import           Snap.Snaplet.MongoDB
 import           Snap.Util.FileServe
 import qualified Heist.Interpreted      as I
 import qualified Data.Text              as T
-import qualified Data.ByteString.Char8  as C
 import qualified Data.Configurator      as Cfg
 import           Application
+import           Bounty
 import           Github.Handlers
 
 
@@ -63,28 +63,32 @@ handleNewUser = method GET handleForm <|> method POST handleFormSubmit
     handleFormSubmit = registerUser "login" "password" >> redirect "/"
 
 
-
 handleGithubBounty :: Handler App App ()
 handleGithubBounty = method GET $ do
     eParams <- getIssueParams
     case eParams of
-        Left _          -> printStuff msg
+        Left msg        -> printStuff msg
         Right (u, r, i) -> do cfg      <- getSnapletUserConfig
                               mTesting <- liftIO $ Cfg.lookup cfg "testing"
+                              let b = GithubBounty u' r' i BountyAwaitingFunds
+                                  [u',r'] = fmap T.pack [u,r]
                               case mTesting of
-                                  Just True  -> createTestBounty u r i
-                                  Just False -> createBounty u r i
+                                  Just True  -> createTestBounty b
+                                  Just False -> createBounty b
                                   Nothing    -> printStuff "Can't create bounty."
   where msg = "To open a github bounty you need a user, repo and issue number."
 
 
+handleBountyStatus :: Handler App App ()
+handleBountyStatus = method GET $ do
+    mBounty <- getStringParam "bounty"
+    case mBounty of
+        Nothing  -> printStuff "Could not parse bounty."
+        Just bId -> do mB <- findBounty bId
+                       case mB of
+                           Nothing -> printStuff "Could not find bounty."
+                           Just b  -> printStuff $ show b
 
-createTestBounty :: String -> String -> Int -> Handler App App ()
-createTestBounty u r i = printStuff $ "Test! " ++  u ++ r ++ show i
-
-
-createBounty :: String -> String -> Int -> Handler App App ()
-createBounty u r i = printStuff $ "Real! " ++  u ++ r ++ show i
 
 -- | The application's routes.
 routes :: [(ByteString, Handler App App ())]
@@ -97,6 +101,7 @@ routes = [ ("/login",    with auth handleLoginSubmit)
          , ("/github/:user/:repo/issues", handleGithubUserRepoIssues)
          , ("/github/:user/:repo/issue/:issue", handleGithubUserRepoIssue)
          , ("/bounty/github/:user/:repo/:issue", handleGithubBounty)
+         , ("/bounty/:bounty", handleBountyStatus)
          , ("", serveDirectory "static")
          ]
 
