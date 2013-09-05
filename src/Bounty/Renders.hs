@@ -2,6 +2,9 @@
 module Bounty.Renders where
 
 import Bounty.Bounty
+import Data.Time.Format
+import Data.Time.Clock
+import System.Locale
 import Control.Arrow    ( second )
 import qualified Heist.Interpreted      as I
 import qualified Data.Text              as T
@@ -13,6 +16,8 @@ renderBounties = I.callTemplate "_bounties" . splices
     where splices is = [("bounties", I.mapSplices renderBounty is)]
 
 
+formatUTC = formatTime defaultTimeLocale rfc822DateFormat
+
 -- | Renders a github bounty in a tr.
 renderBounty :: Monad m => Bounty -> I.Splice m
 renderBounty = I.callTemplate "_bounty" . splices
@@ -22,23 +27,10 @@ renderBounty = I.callTemplate "_bounty" . splices
                       , ("bountyUser", _user b)
                       , ("bountyRepo", _repo b)
                       , ("bountyIssue", T.pack $ show $ _issue b)
+                      , ("bountyCreated", T.pack $ formatUTC $ _created b)
+                      , ("bountyUpdated", T.pack $ formatUTC $ _updated b)
+                      , ("bountyAddress", T.pack $ show $ _addy b)
                       , ("bountyStatus", statusString $ _status b)
                       ]
-
-
--- | Renders a github user as a link.
---renderOwner :: Monad m => GithubOwner -> I.Splice m
---renderOwner u = I.callTemplate "_userLink" $ texts u
---    where texts = map (second $ I.textSplice . T.pack) . fields
---          fields GH.GithubUser{..} = makeFields (makeAvatarUrl githubOwnerGravatarId)  githubOwnerLogin githubOwnerId
---          fields GH.GithubOrganization{..} = makeFields githubOwnerAvatarUrl githubOwnerLogin githubOwnerId
---          makeAvatarUrl i = concat [ "http://www.gravatar.com/avatar/"
---                                   , i
---                                   , "?size=20"
---                                   ]
---          makeFields a l i = [ ("githubOwnerAvatarUrl", a)
---                             , ("githubOwnerLogin", l)
---                             , ("githubOwnerId", show i)
---                             ]
 
 

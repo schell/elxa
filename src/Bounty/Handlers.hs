@@ -19,19 +19,16 @@ import qualified Heist.Interpreted as I
 import qualified Data.Text         as T
 
 
-createTestBounty :: (HasMongoDB v, HasHeist b) => Bounty -> Handler b v ()
-createTestBounty b = do
-    e <- eitherWithDB $ findUserRepoIssueTestBounties b
-    liftIO $ print e
+createBounty :: (HasMongoDB v, HasHeist b) => Bounty -> Handler b v ()
+createBounty b = do
+    e <- eitherWithDB $ findBounties b
     case e of
         Left err -> printStuff $ show err
-        Right [] -> do e' <- eitherWithDB $ newUserRepoIssueTestBounty b
+        Right [] -> do e' <- eitherWithDB $ newBounty b
                        either (printStuff . show) (printBounties . (:[])) e'
-        Right bs -> printBounties $ mapMaybe docToBounty bs
-
-
-createBounty :: HasHeist b => Bounty -> Handler b v ()
-createBounty b = printBounties [b]
+        Right bs -> do let bs' = mapMaybe docToBounty bs
+                       liftIO $ print bs'
+                       printBounties bs'
 
 
 printBounties :: HasHeist b => [Bounty] -> Handler b v ()
@@ -40,16 +37,20 @@ printBounties bs = heistLocal (I.bindSplices $ splices bs) $ render "content"
                         , ("contentBody", renderBounties bs')
                         ]
 
+
 handleGithubBounty :: Handler App App ()
 handleGithubBounty = method GET $ do
     eParams <- getIssueParams
     case eParams of
         Left _          -> printStuff msg
-        Right (u, r, i) -> do isTesting <- getIsTestingEnv
-                              let b = GithubBounty Nothing u' r' i BountyAwaitingFunds
-                                  [u',r'] = fmap T.pack [u,r]
-                              if isTesting then createTestBounty b else createBounty b
-  where msg = "To open a github bounty you need a user, repo and issue number."
+        Right (u, r, i) -> do b <- liftIO getNewBounty
+                              let [u',r'] = fmap T.pack [u,r]
+                                  b'      = b { _user = u'
+                                              , _repo = r'
+                                              , _issue = i
+                                              }
+                              createBounty b'
+    where msg = "To open a github bounty you need a user, repo and issue number."
 
 
 handleBountyStatus :: Handler App App ()
@@ -68,19 +69,18 @@ handleProgressTestBountyStatus = do
     isTesting <- getIsTestingEnv
     if isTesting then progressTestBounty else handleHttpErr 404
 
-progressTestBounty :: Handler App App () --(MonadState app v, HasMongoDB b) => Handler b v ()
+progressTestBounty :: Handler App App ()
 progressTestBounty = do
     True <- getIsTestingEnv
     mBId <- getStringParam "bounty"
     mDoc <- findBounty $ fromMaybe "" mBId
     if isNothing mDoc
       then handleHttpErr 404
-      else let doc   = fromJust mDoc
-               mB    = docToBounty doc
-               bty   = fromMaybe emptyBounty mB
-               bty'  = progressStatus bty
-               doc' = bountyToDoc bty'
-           in do _ <- eitherWithDB (save "test_bounties" doc')
-                 printBounties [bty'] 
+      else let doc  = fromJust mDoc
+               mB   = docToBounty doc
+               bty  = fromMaybe emptyBounty mB
+           in do bty' <- liftIO $ progressStatus bty
+                 _    <- eitherWithDB (save "test_bounties" $ bountyToDoc bty')
+                 printBounties [bty']
 
 

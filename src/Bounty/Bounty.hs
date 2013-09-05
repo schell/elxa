@@ -5,8 +5,11 @@ module Bounty.Bounty where
 
 import Database.MongoDB
 import Data.Typeable
-import Debug.Trace
-import Data.List        ( elemIndex )
+import Data.Time.Clock
+import Data.Time.Calendar
+import Data.Time.Format
+import System.Locale
+import Data.List        ( elemIndex, intercalate )
 import qualified Data.Text as T
 
 
@@ -17,21 +20,47 @@ data BountyStatus = BountyAwaitingFunds
                   | BountyUnknown deriving (Show, Eq, Typeable)
 
 
-data Bounty = GithubBounty { _id     :: Maybe ObjectId
-                           , _user   :: T.Text
-                           , _repo   :: T.Text
-                           , _issue  :: Int
-                           , _status :: BountyStatus
-                           } deriving (Show, Eq)
+data Bounty = GithubBounty { _id      :: Maybe ObjectId
+                           , _addy    :: Maybe T.Text
+                           , _user    :: T.Text
+                           , _repo    :: T.Text
+                           , _issue   :: Int
+                           , _status  :: BountyStatus
+                           , _created :: UTCTime
+                           , _updated :: UTCTime
+                           } deriving (Eq)
+
+instance Show Bounty where
+    show b = intercalate ", " [ show $ _id b
+                              , show $ _addy b
+                              , show $ _user b
+                              , show $ _repo b
+                              , show $ _issue b
+                              , show $ _status b
+                              , formatTime defaultTimeLocale rfc822DateFormat $ _created b
+                              , formatTime defaultTimeLocale rfc822DateFormat $ _updated b
+                              ]
+
 
 emptyBounty :: Bounty
-emptyBounty = GithubBounty { _id = Nothing
+emptyBounty = GithubBounty { _id   = Nothing
+                           , _addy = Nothing
                            , _user = ""
                            , _repo = ""
                            , _issue = 0
                            , _status = BountyUnknown
+                           , _created = zeroDay
+                           , _updated = zeroDay
                            }
 
+
+getNewBounty :: IO Bounty
+getNewBounty = do
+    t <- getCurrentTime
+    return $ emptyBounty { _created = t
+                         , _updated = t
+                         , _status = BountyAwaitingFunds
+                         }
 
 instance Val BountyStatus where
     val   = statusValue
@@ -83,42 +112,63 @@ nextStatus s = case takeWhile (/= s) $ reverse allStatuses of
 
 bountyToDoc :: Bounty -> [Field]
 bountyToDoc b@GithubBounty{} =
-    [ "type"   := String "github"
-    , "user"   =: _user b
-    , "repo"   =: _repo b
-    , "issue"  =: _issue b
-    , "status" =: _status b
-    ] ++ obj
+    [ "type"    := String "github"
+    , "user"    =: _user b
+    , "repo"    =: _repo b
+    , "issue"   =: _issue b
+    , "status"  =: _status b
+    , "created" =: _created b
+    , "updated" =: _updated b
+    ] ++ obj ++ addy
         where obj = case _id b of
                         Nothing  -> []
                         Just oid -> ["_id" =: oid]
-
+              addy = case _addy b of
+                         Nothing -> ["addy" := Null]
+                         Just a  -> ["addy" =: a]
 
 
 docToBounty :: Document -> Maybe Bounty
 docToBounty d = do
-    let tr a = trace (show a) a
     o  <- look "_id" d
+    a  <- look "addy" d
     t  <- look "type" d
-    t' <- cast' $ tr t
+    t' <- cast' t
     u  <- look "user" d
-    u' <- cast' $ tr u
+    u' <- cast' u
     r  <- look "repo" d
-    r' <- cast' $ tr r
+    r' <- cast' r
     i  <- look "issue" d
-    i' <- cast' $ tr i
+    i' <- cast' i
+    c  <- look "created" d
+    c' <- cast' c
+    q  <- look "updated" d
+    q' <- cast' q
     s  <- look "status" d
-    s' <- cast' $ tr s
+    s' <- cast' s
     b  <- makeBounty t' u' r' i' s'
-    return $ b { _id = cast' o }
+    return $ b { _id   = cast' o
+               , _addy = cast' a :: Maybe T.Text
+               , _created = c'
+               , _updated = q'
+               }
 
 
 makeBounty :: T.Text -> T.Text -> T.Text -> Int -> BountyStatus -> Maybe Bounty
-makeBounty "github" u r i s = Just $ GithubBounty Nothing u r i s
+makeBounty "github" u r i s = Just $ GithubBounty Nothing Nothing u r i s t t
+    where t = zeroDay
 makeBounty _ _ _ _ _ = Nothing
 
 
-progressStatus :: Bounty -> Bounty
-progressStatus b = b { _status = nextStatus $ _status b }
+zeroDay :: UTCTime
+zeroDay = UTCTime (ModifiedJulianDay 0) (secondsToDiffTime 0)
+
+
+progressStatus :: Bounty -> IO Bounty
+progressStatus b = do
+    t <- getCurrentTime
+    return $ b { _updated = t
+               , _status = nextStatus $ _status b
+               }
 
 

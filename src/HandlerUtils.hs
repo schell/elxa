@@ -32,13 +32,12 @@ getIsTestingEnv :: Handler a b Bool
 getIsTestingEnv = do
     cfg   <- getSnapletUserConfig
     mTest <- liftIO $ Cfg.lookup cfg "testing"
-    liftIO $ print mTest
     case mTest of
         Just True -> return True
         _         -> return False
 
 
-errors :: Int -> String
+errors :: Int -> T.Text
 errors 404 = "URL not found :("
 errors _   = "Unknown error."
 
@@ -46,6 +45,10 @@ errors _   = "Unknown error."
 handleHttpErr :: HasHeist b => Int -> Handler b v ()
 handleHttpErr c = do
     modifyResponse (setResponseCode c)
-    printStuff $ errors c
+    heistLocal binding $ render "error"
+        where binding = I.bindSplices splices
+              splices = [ ("errCode", I.textSplice $ T.pack $ show c)
+                        , ("errText", I.textSplice $ errors c)
+                        ]
 
 

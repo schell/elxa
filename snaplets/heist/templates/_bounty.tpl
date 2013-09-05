@@ -14,6 +14,15 @@
         <bountyIssue />
     </td>
     <td>
+        <bountyCreated />
+    </td>
+    <td>
+        <bountyUpdated />
+    </td>
+    <td>
+        <bountyAddress />
+    </td>
+    <td>
         <bountyStatus />
     </td>
 </tr>
