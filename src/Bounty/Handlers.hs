@@ -15,6 +15,7 @@ import Snap.Snaplet.Heist
 import Database.MongoDB
 import Data.Maybe
 import Control.Monad.State
+import qualified Network.Bitcoin   as BTC
 import qualified Heist.Interpreted as I
 import qualified Data.Text         as T
 
@@ -44,11 +45,14 @@ handleGithubBounty = method GET $ do
     case eParams of
         Left _          -> printStuff msg
         Right (u, r, i) -> do b <- liftIO getNewBounty
+                              app <- get
                               let [u',r'] = fmap T.pack [u,r]
+                                  a       = _btcAuth app
                                   b'      = b { _user = u'
                                               , _repo = r'
                                               , _issue = i
                                               }
+                              liftIO $ print a
                               createBounty b'
     where msg = "To open a github bounty you need a user, repo and issue number."
 

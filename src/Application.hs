@@ -12,13 +12,15 @@ import Snap.Snaplet.Heist
 import Snap.Snaplet.Auth
 import Snap.Snaplet.Session
 import Snap.Snaplet.MongoDB.Core
+import qualified Network.Bitcoin as BTC
 
 ------------------------------------------------------------------------------
 data App = App
-    { _heist :: Snaplet (Heist App)
-    , _sess  :: Snaplet SessionManager
-    , _auth  :: Snaplet (AuthManager App)
-    , _db    :: Snaplet MongoDB
+    { _heist   :: Snaplet (Heist App)
+    , _sess    :: Snaplet SessionManager
+    , _auth    :: Snaplet (AuthManager App)
+    , _db      :: Snaplet MongoDB
+    , _btcAuth :: BTC.Auth
     }
 makeLenses ''App
 

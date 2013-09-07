@@ -30,6 +30,7 @@ import           Snap.Util.FileServe
 import qualified Heist.Interpreted      as I
 import qualified Data.Text              as T
 import qualified Data.Configurator      as Cfg
+import qualified Network.Bitcoin        as BTC
 import           Application
 import           Bounty
 import           Github.Handlers
@@ -95,7 +96,10 @@ app = makeSnaplet "app" "The BTC based bounty service." Nothing $ do
     d <- nestMongoDBSnaplet
     addRoutes routes
     addAuthSplices h auth
-    return $ App h s a d
+    let btcAuth = BTC.Auth "http://localhost:18332" "bitcoinrpc" "5065458a4d12058ed9b2ab666f795b17"
+    btcInfo <- liftIO $ BTC.getBitcoindInfo btcAuth
+    liftIO $ print btcInfo
+    return $ App h s a d btcAuth
 
 
 nestMongoDBSnaplet :: Initializer b App (Snaplet MongoDB)
