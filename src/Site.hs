@@ -21,6 +21,7 @@ import           Control.Monad
 import           Control.Monad.IO.Class      ( liftIO )
 import           Data.ByteString             ( ByteString )
 import           Data.Maybe
+import           Data.Monoid
 import           Database.MongoDB hiding     ( auth )
 import           Snap.Core
 import           Snap.Snaplet
@@ -38,6 +39,7 @@ import           Application
 import           Bounty
 import           Github.Handlers
 import           Clock
+import           App.Stats
 
 
 handleLogin :: Maybe T.Text -> Handler App (AuthManager App) ()
@@ -98,7 +100,7 @@ app = makeSnaplet "app" "The BTC based bounty service." Nothing $ do
     a <- nestSnaplet "auth" auth $
            initJsonFileAuthManager defAuthSettings sess "users.json"
 
-    (c, h', n) <- getMongoDBConfig
+    (c, h', n, duration) <- getMongoDBConfig
     d <- nestMongoDBSnaplet c h' n
 
     addRoutes routes
@@ -109,35 +111,63 @@ app = makeSnaplet "app" "The BTC based bounty service." Nothing $ do
     liftIO $ putStrLn "Bitcoind info:\n"
     liftIO $ print btcInfo
 
-    tm <- liftIO $ do
+    tm  <- liftIO $ do
         t  <- getTime
         atomically $ newTMVar t
-    _ <- liftIO $ forkIO $ forever poll tm h'
+    tid <- liftIO $ poll tm h' n duration
+    liftIO $ print tid
+
     return $ App h s a d btcA tm
 
 
-poll :: TMVar Double -> String -> T.Text -> IO ()
-poll tm h collection = do
+poll :: TMVar Double -> String -> T.Text -> Double -> IO ()
+poll tm h d duration = void $ forkIO $ do
     pipe <- runIOE $ connect (host h)
-    e <- access pipe master collection $ do
-        stats <- findOne (select [] "stats") 
-        return stats
-    close pipe
-    print e
-    t <- getTime
-    _ <- atomically $ swapTMVar tm t
-    return ()
+    void $ forever $ do
+        -- Get the last app stats.
+        e <- access pipe master d $ do
+            stats <- findOne (select [] "stats")
+            let appStats = maybe mempty docToAppStats stats
+            -- The first time around, save that doc.
+            when (isNothing stats) $ Database.MongoDB.save "stats" $ appStatsToDoc appStats
+            return appStats
+        t' <- getTime
+        t  <- atomically $ takeTMVar tm
 
-getMongoDBConfig :: Initializer App App (Int, String, T.Text)
+        case e of
+            Right a -> do -- Update the stats with the new time.
+                          let lastDur = t' - t
+                              a'  = AppStats { _pollDurations = [lastDur] }
+                              a'' = a `mappend` a'
+                              avg = sum (_pollDurations a'') / fromIntegral (length (_pollDurations a''))
+                              doc = appStatsToDoc a''
+
+
+                          -- Store the new stats.
+                          _ <- access pipe master d $ modify (select [] "stats") ["$set" =: doc]
+                          putStrLn $ "Average poll duration:" ++ show avg
+                          -- Delay this thread so we don't overload the
+                          -- cpu.
+                          threadDelay $ floor (duration * (10 ** 6))
+
+            Left err -> print err
+
+        _ <- atomically $ putTMVar tm t'
+        return ()
+    close pipe
+
+getMongoDBConfig :: Initializer App App (Int, String, T.Text, Double)
 getMongoDBConfig = do
     cfg          <- getSnapletUserConfig
     mConnections <- liftIO $ Cfg.lookup cfg "mdb_connections"
     mHost        <- liftIO $ Cfg.lookup cfg "mdb_host"
     mName        <- liftIO $ Cfg.lookup cfg "mdb_name"
+    mPollDuration<- liftIO $ Cfg.lookup cfg "mdb_poll"
     let c = fromMaybe 10 mConnections
         h = fromMaybe "127.0.0.1" mHost
         n = fromMaybe "elxa_devel" mName
-    return (c, h, n)
+        d = fromMaybe 10 mPollDuration
+    return (c, h, n, d)
 
 
 nestMongoDBSnaplet :: Int -> String -> T.Text -> Initializer b App (Snaplet MongoDB)

@@ -4,14 +4,15 @@ module Bounty.Database where
 
 
 import Bounty.Bounty
-import HandlerUtils
 import Snap.Snaplet.MongoDB
 import Database.MongoDB
 import Control.Monad.State
 import Control.Monad.Trans.Control
 import Control.Applicative
+import Data.Text ( Text )
 
 
+bountyCollection :: Text
 bountyCollection = "test_bounties"
 
 newBounty :: (Applicative m, MonadIO m) => Bounty -> Action m Bounty

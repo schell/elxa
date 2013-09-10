@@ -2,8 +2,8 @@
 module Bounty.Renders where
 
 import Bounty.Bounty
-import Data.Time.Format
 import Data.Time.Clock
+import Data.Time.Format
 import System.Locale
 import Control.Arrow    ( second )
 import qualified Heist.Interpreted      as I
@@ -16,6 +16,7 @@ renderBounties = I.callTemplate "_bounties" . splices
     where splices is = [("bounties", I.mapSplices renderBounty is)]
 
 
+formatUTC :: UTCTime -> String
 formatUTC = formatTime defaultTimeLocale rfc822DateFormat
 
 -- | Renders a github bounty in a tr.
