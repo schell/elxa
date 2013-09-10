@@ -15,9 +15,10 @@ import Snap.Snaplet.Heist
 import Database.MongoDB
 import Data.Maybe
 import Control.Monad.State
-import qualified Network.Bitcoin   as BTC
-import qualified Heist.Interpreted as I
-import qualified Data.Text         as T
+import qualified Network.Bitcoin       as BTC
+import qualified Heist.Interpreted     as I
+import qualified Data.Text             as T
+import qualified Data.ByteString.Char8 as B
 
 
 createBounty :: (HasMongoDB v, HasHeist b) => Bounty -> Handler b v ()
@@ -30,6 +31,17 @@ createBounty b = do
         Right bs -> do let bs' = mapMaybe docToBounty bs
                        liftIO $ print bs'
                        printBounties bs'
+
+bountyIdForUserRepoIssue :: T.Text -> T.Text -> Int -> Handler App App (Maybe String)
+bountyIdForUserRepoIssue u r i = do
+    e <- eitherWithDB $ findBounties $ emptyBounty { _user = u
+                                                   , _issue = i
+                                                   , _repo = r
+                                                   }
+    return $ case e of 
+        Right [doc] -> do valOid <- look "_id" doc
+                          fmap show (cast' valOid :: Maybe ObjectId)
+        _           -> Nothing
 
 
 printBounties :: HasHeist b => [Bounty] -> Handler b v ()
@@ -44,21 +56,25 @@ handleGithubBounty = method GET $ do
     eParams <- getIssueParams
     case eParams of
         Left _          -> printStuff msg
-        Right (u, r, i) -> do b <- liftIO getNewBounty
-                              app <- get
-                              let [u',r'] = fmap T.pack [u,r]
-                                  a       = _btcAuth app
-                                  b'      = b { _user = u'
-                                              , _repo = r'
-                                              , _issue = i
-                                              }
-                              liftIO $ print a
-                              createBounty b'
+        Right (u, r, i) -> do let u' = T.pack u
+                                  r' = T.pack r
+                              mbId <- bountyIdForUserRepoIssue u' r' i 
+                              case mbId of
+                                  Just bId -> redirect $ B.pack ("/bounty/" ++ bId)
+                                  Nothing  -> do b   <- liftIO getNewBounty
+                                                 app <- get
+                                                 a   <- liftIO $ BTC.getNewAddress (_btcAuth app) $ fmap (T.pack . show) $ _id b 
+                                                 let b'      = b { _user  = u'
+                                                                 , _repo  = r'
+                                                                 , _issue = i
+                                                                 , _addy  = Just a
+                                                                 }
+                                                 createBounty b'
     where msg = "To open a github bounty you need a user, repo and issue number."
 
 
 handleBountyStatus :: Handler App App ()
-handleBountyStatus = method GET $ do
+handleBountyStatus = method  GET $ do
     mBounty <- getStringParam "bounty"
     case mBounty of
         Nothing  -> printStuff "Could not parse bounty."
@@ -66,6 +82,7 @@ handleBountyStatus = method GET $ do
                        case mB of
                            Nothing -> handleHttpErr 404
                            Just b  -> printBounties [fromMaybe emptyBounty $ docToBounty b]
+
 
 
 handleProgressTestBountyStatus :: Handler App App ()

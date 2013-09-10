@@ -57,9 +57,11 @@ emptyBounty = GithubBounty { _id   = Nothing
 getNewBounty :: IO Bounty
 getNewBounty = do
     t <- getCurrentTime
+    i <- genObjectId
     return $ emptyBounty { _created = t
                          , _updated = t
-                         , _status = BountyAwaitingFunds
+                         , _status  = BountyAwaitingFunds
+                         , _id      = Just i
                          }
 
 instance Val BountyStatus where

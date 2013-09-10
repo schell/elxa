@@ -1,18 +1,17 @@
-{-# LANGUAGE CPP             #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE CPP, TemplateHaskell #-}
 
-{-
 
-NOTE: Don't modify this file unless you know what you are doing.  If you are
-new to snap, start with Site.hs and Application.hs.  This file contains
-boilerplate needed for dynamic reloading and is not meant for general
-consumption.
 
-Occasionally if we modify the way the dynamic reloader works and you want to
-upgrade, you might have to swap out this file for a newer version.  But in
-most cases you'll never need to modify this code.
+--NOTE: Dont modify this file unless you know what you are doing.  If you are
+--new to snap, start with Site.hs and Application.hs.  This file contains
+--boilerplate needed for dynamic reloading and is not meant for general
+--consumption.
+--
+--Occasionally if we modify the way the dynamic reloader works and you want to
+--upgrade, you might have to swap out this file for a newer version.  But in
+--most cases youll never need to modify this code.
 
--}
+
 module Main where
 
 ------------------------------------------------------------------------------
@@ -42,7 +41,7 @@ import           Snap.Loader.Static
 -- this.
 --
 -- First, this is much slower. Running the interpreter takes a significant
--- chunk of time (a couple tenths of a second on the author's machine, at this
+-- chunk of time (a couple tenths of a second on the authors machine, at this
 -- time), regardless of the simplicity of the loaded code. In order to
 -- recompile and re-load server state as infrequently as possible, the source
 -- directories are watched for updates, as are any extra directories specified
@@ -65,10 +64,10 @@ main = do
     -- Depending on the version of loadSnapTH in scope, this either enables
     -- dynamic reloading, or compiles it without. The last argument to
     -- loadSnapTH is a list of additional directories to watch for changes to
-    -- trigger reloads in development mode. It doesn't need to include source
+    -- trigger reloads in development mode. It doesnt need to include source
     -- directories, those are picked up automatically by the splice.
     (conf, site, cleanup) <- $(loadSnapTH [| getConf |]
-                                          'getActions
+                                          'getActions --'
                                           ["snaplets/heist/templates"])
 
     _ <- try $ httpServe conf site :: IO (Either SomeException ())
@@ -79,7 +78,7 @@ main = do
 -- | This action loads the config used by this application. The loaded config
 -- is returned as the first element of the tuple produced by the loadSnapTH
 -- Splice. The type is not solidly fixed, though it must be an IO action that
--- produces the same type as 'getActions' takes. It also must be an instance of
+-- produces the same type as getActions takes. It also must be an instance of
 -- Typeable. If the type of this is changed, a full recompile will be needed to
 -- pick up the change, even in development mode.
 --
@@ -99,7 +98,7 @@ getConf = commandLineAppConfig defaultConfig
 -- should still be used after the server has stopped handling requests, as the
 -- cleanup actions are only automatically run when a reload is triggered.
 --
--- This sample doesn't actually use the config passed in, but more
+-- This sample doesnt actually use the config passed in, but more
 -- sophisticated code might.
 getActions :: Config Snap AppConfig -> IO (Snap (), IO ())
 getActions conf = do

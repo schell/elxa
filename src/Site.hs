@@ -15,6 +15,9 @@ module Site
   ) where
 
 import           Control.Applicative
+import           Control.Concurrent
+import           Control.Concurrent.STM
+import           Control.Monad
 import           Control.Monad.IO.Class      ( liftIO )
 import           Data.ByteString             ( ByteString )
 import           Data.Maybe
@@ -34,6 +37,7 @@ import qualified Network.Bitcoin        as BTC
 import           Application
 import           Bounty
 import           Github.Handlers
+import           Clock
 
 
 handleLogin :: Maybe T.Text -> Handler App (AuthManager App) ()
@@ -93,17 +97,39 @@ app = makeSnaplet "app" "The BTC based bounty service." Nothing $ do
     -- you'll probably want to change this to a more robust auth backend.
     a <- nestSnaplet "auth" auth $
            initJsonFileAuthManager defAuthSettings sess "users.json"
-    d <- nestMongoDBSnaplet
+
+    (c, h', n) <- getMongoDBConfig
+    d <- nestMongoDBSnaplet c h' n
+
     addRoutes routes
     addAuthSplices h auth
-    let btcAuth = BTC.Auth "http://localhost:18332" "bitcoinrpc" "5065458a4d12058ed9b2ab666f795b17"
-    btcInfo <- liftIO $ BTC.getBitcoindInfo btcAuth
+
+    btcA <- getBTCAuth
+    btcInfo <- liftIO $ BTC.getBitcoindInfo btcA
+    liftIO $ putStrLn "Bitcoind info:\n"
     liftIO $ print btcInfo
-    return $ App h s a d btcAuth
+
+    tm <- liftIO $ do
+        t  <- getTime
+        atomically $ newTMVar t
+    _ <- liftIO $ forkIO $ forever poll tm h'
+    return $ App h s a d btcA tm
 
 
-nestMongoDBSnaplet :: Initializer b App (Snaplet MongoDB)
-nestMongoDBSnaplet = do
+poll :: TMVar Double -> String -> T.Text -> IO ()
+poll tm h collection = do
+    pipe <- runIOE $ connect (host h)
+    e <- access pipe master collection $ do
+        stats <- findOne (select [] "stats") 
+        return stats
+    close pipe
+    print e
+    t <- getTime
+    _ <- atomically $ swapTMVar tm t
+    return ()
+
+getMongoDBConfig :: Initializer App App (Int, String, T.Text)
+getMongoDBConfig = do
     cfg          <- getSnapletUserConfig
     mConnections <- liftIO $ Cfg.lookup cfg "mdb_connections"
     mHost        <- liftIO $ Cfg.lookup cfg "mdb_host"
@@ -111,6 +137,11 @@ nestMongoDBSnaplet = do
     let c = fromMaybe 10 mConnections
         h = fromMaybe "127.0.0.1" mHost
         n = fromMaybe "elxa_devel" mName
+    return (c, h, n)
+
+
+nestMongoDBSnaplet :: Int -> String -> T.Text -> Initializer b App (Snaplet MongoDB)
+nestMongoDBSnaplet c h n = do
     liftIO $ putStrLn $ concat [ "Opening pool of "
                                , show c
                                , " connections on "
@@ -119,5 +150,23 @@ nestMongoDBSnaplet = do
                                , T.unpack n
                                ]
     nestSnaplet "db" db $ mongoDBInit c (host h) n
+
+
+getBTCAuth :: Initializer App App BTC.Auth
+getBTCAuth = do
+    cfg  <- getSnapletUserConfig
+    mUrl  <- liftIO $ Cfg.lookup cfg "btc_url"
+    mUser <- liftIO $ Cfg.lookup cfg "btc_user"
+    mPass <- liftIO $ Cfg.lookup cfg "btc_pass"
+    let url  = fromMaybe "http://localhost:18332" mUrl
+        user = fromMaybe "bitcoinrpc" mUser
+        pasw = fromMaybe "5065458a4d12058ed9b2ab666f795b17" mPass
+        btcA = BTC.Auth url user pasw
+    liftIO $ putStrLn $ concat [ "Connecting to bitcoind at "
+                               , T.unpack url
+                               , " using user "
+                               , T.unpack user
+                               ]
+    return btcA
 
 

@@ -12,17 +12,20 @@ import Snap.Snaplet.Heist
 import Snap.Snaplet.Auth
 import Snap.Snaplet.Session
 import Snap.Snaplet.MongoDB.Core
+import Control.Concurrent.STM.TMVar
 import qualified Network.Bitcoin as BTC
 
 ------------------------------------------------------------------------------
 data App = App
-    { _heist   :: Snaplet (Heist App)
-    , _sess    :: Snaplet SessionManager
-    , _auth    :: Snaplet (AuthManager App)
-    , _db      :: Snaplet MongoDB
-    , _btcAuth :: BTC.Auth
+    { _heist    :: Snaplet (Heist App)
+    , _sess     :: Snaplet SessionManager
+    , _auth     :: Snaplet (AuthManager App)
+    , _db       :: Snaplet MongoDB
+    , _btcAuth  :: BTC.Auth
+    , _lastPoll :: TMVar Double
     }
 makeLenses ''App
+
 
 instance HasHeist App where
     heistLens = subSnaplet heist
