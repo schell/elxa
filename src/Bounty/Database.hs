@@ -9,11 +9,12 @@ import Database.MongoDB
 import Control.Monad.State
 import Control.Monad.Trans.Control
 import Control.Applicative
+import Data.Maybe
 import Data.Text ( Text )
 
 
 bountyCollection :: Text
-bountyCollection = "test_bounties"
+bountyCollection = "bounties"
 
 newBounty :: (Applicative m, MonadIO m) => Bounty -> Action m Bounty
 newBounty b = do
@@ -27,6 +28,15 @@ findBounties b = rest =<< find (select fields bountyCollection)
                     , "repo"   =: _repo b
                     , "issue"  =: _issue b
                     ]
+
+findAllAccounts :: (MonadBaseControl IO m, MonadIO m) => Action m [Document]
+findAllAccounts = rest =<< find (select [] bountyCollection) { project = [ "_id" =: True ]}
+
+getAllAccountStrings :: (MonadBaseControl IO m, MonadIO m) => Action m [String]
+getAllAccountStrings = do
+    docs <- findAllAccounts
+    return $ catMaybes $ fmap docIdToString docs
+        where docIdToString = fmap show . look "_id"
 
 
 findBounty :: (MonadIO m, MonadState app m, HasMongoDB app) => String -> m (Maybe Document)

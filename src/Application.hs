@@ -13,7 +13,7 @@ import Snap.Snaplet.Auth
 import Snap.Snaplet.Session
 import Snap.Snaplet.MongoDB.Core
 import Control.Concurrent.STM.TMVar
-import qualified Network.Bitcoin as BTC
+import App.Configs
 
 ------------------------------------------------------------------------------
 data App = App
@@ -21,7 +21,7 @@ data App = App
     , _sess     :: Snaplet SessionManager
     , _auth     :: Snaplet (AuthManager App)
     , _db       :: Snaplet MongoDB
-    , _btcAuth  :: BTC.Auth
+    , _cfg      :: AppCfg
     , _lastPoll :: TMVar Double
     }
 makeLenses ''App
@@ -29,6 +29,7 @@ makeLenses ''App
 
 instance HasHeist App where
     heistLens = subSnaplet heist
+
 
 instance HasMongoDB App where
     getMongoDB app = view snapletValue (view db app)

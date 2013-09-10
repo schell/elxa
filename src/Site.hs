@@ -15,13 +15,10 @@ module Site
   ) where
 
 import           Control.Applicative
-import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Control.Monad
 import           Control.Monad.IO.Class      ( liftIO )
 import           Data.ByteString             ( ByteString )
 import           Data.Maybe
-import           Data.Monoid
 import           Database.MongoDB hiding     ( auth )
 import           Snap.Core
 import           Snap.Snaplet
@@ -39,7 +36,8 @@ import           Application
 import           Bounty
 import           Github.Handlers
 import           Clock
-import           App.Stats
+import           Polling
+import           App.Configs
 
 
 handleLogin :: Maybe T.Text -> Handler App (AuthManager App) ()
@@ -100,78 +98,29 @@ app = makeSnaplet "app" "The BTC based bounty service." Nothing $ do
     a <- nestSnaplet "auth" auth $
            initJsonFileAuthManager defAuthSettings sess "users.json"
 
-    (c, h', n, duration) <- getMongoDBConfig
-    d <- nestMongoDBSnaplet c h' n
+    appCfg@(AppCfg _ _ mCfg bCfg) <- getAppCfg
+
+    d <- nestMongoDBSnaplet mCfg 
 
     addRoutes routes
     addAuthSplices h auth
 
-    btcA <- getBTCAuth
-    btcInfo <- liftIO $ BTC.getBitcoindInfo btcA
+    btcInfo <- liftIO $ BTC.getBitcoindInfo (_btcAuth bCfg)
     liftIO $ putStrLn "Bitcoind info:\n"
     liftIO $ print btcInfo
 
     tm  <- liftIO $ do
         t  <- getTime
         atomically $ newTMVar t
-    tid <- liftIO $ poll tm h' n duration
+
+    tid <- liftIO $ poll tm appCfg
     liftIO $ print tid
 
-    return $ App h s a d btcA tm
+    return $ App h s a d appCfg tm
 
 
-poll :: TMVar Double -> String -> T.Text -> Double -> IO ()
-poll tm h d duration = void $ forkIO $ do
-    pipe <- runIOE $ connect (host h)
-    void $ forever $ do
-        -- Get the last app stats.
-        e <- access pipe master d $ do
-            stats <- findOne (select [] "stats")
-            let appStats = maybe mempty docToAppStats stats
-            -- The first time around, save that doc.
-            when (isNothing stats) $ Database.MongoDB.save "stats" $ appStatsToDoc appStats
-            return appStats
-        t' <- getTime
-        t  <- atomically $ takeTMVar tm
-
-        case e of
-            Right a -> do -- Update the stats with the new time.
-                          let lastDur = t' - t
-                              a'  = AppStats { _pollDurations = [lastDur] }
-                              a'' = a `mappend` a'
-                              avg = sum (_pollDurations a'') / fromIntegral (length (_pollDurations a''))
-                              doc = appStatsToDoc a''
-
-
-                          -- Store the new stats.
-                          _ <- access pipe master d $ modify (select [] "stats") ["$set" =: doc]
-                          putStrLn $ "Average poll duration:" ++ show avg
-                          -- Delay this thread so we don't overload the
-                          -- cpu.
-                          threadDelay $ floor (duration * (10 ** 6))
-
-            Left err -> print err
-
-        _ <- atomically $ putTMVar tm t'
-        return ()
-    close pipe
-
-getMongoDBConfig :: Initializer App App (Int, String, T.Text, Double)
-getMongoDBConfig = do
-    cfg          <- getSnapletUserConfig
-    mConnections <- liftIO $ Cfg.lookup cfg "mdb_connections"
-    mHost        <- liftIO $ Cfg.lookup cfg "mdb_host"
-    mName        <- liftIO $ Cfg.lookup cfg "mdb_name"
-    mPollDuration<- liftIO $ Cfg.lookup cfg "mdb_poll"
-    let c = fromMaybe 10 mConnections
-        h = fromMaybe "127.0.0.1" mHost
-        n = fromMaybe "elxa_devel" mName
-        d = fromMaybe 10 mPollDuration
-    return (c, h, n, d)
-
-
-nestMongoDBSnaplet :: Int -> String -> T.Text -> Initializer b App (Snaplet MongoDB)
-nestMongoDBSnaplet c h n = do
+nestMongoDBSnaplet :: MongoCfg -> Initializer b App (Snaplet MongoDB)
+nestMongoDBSnaplet (MongoCfg c h n) = do
     liftIO $ putStrLn $ concat [ "Opening pool of "
                                , show c
                                , " connections on "
@@ -182,12 +131,24 @@ nestMongoDBSnaplet c h n = do
     nestSnaplet "db" db $ mongoDBInit c (host h) n
 
 
-getBTCAuth :: Initializer App App BTC.Auth
-getBTCAuth = do
-    cfg  <- getSnapletUserConfig
-    mUrl  <- liftIO $ Cfg.lookup cfg "btc_url"
-    mUser <- liftIO $ Cfg.lookup cfg "btc_user"
-    mPass <- liftIO $ Cfg.lookup cfg "btc_pass"
+getAppCfg :: Initializer App App AppCfg
+getAppCfg = do
+    btcCfg <- getBTCCfg
+    mdbCfg <- getMongoCfg
+    cfg'   <- getSnapletUserConfig
+    mPoll  <- liftIO $ Cfg.lookup cfg' "poll_duration"
+    mTest  <- liftIO $ Cfg.lookup cfg' "testing"
+    let d = fromMaybe 10 mPoll
+        t = fromMaybe False mTest
+    return $ AppCfg t d mdbCfg btcCfg
+
+
+getBTCCfg :: Initializer App App BTCCfg
+getBTCCfg = do
+    cfg'  <- getSnapletUserConfig
+    mUrl  <- liftIO $ Cfg.lookup cfg' "btc_url"
+    mUser <- liftIO $ Cfg.lookup cfg' "btc_user"
+    mPass <- liftIO $ Cfg.lookup cfg' "btc_pass"
     let url  = fromMaybe "http://localhost:18332" mUrl
         user = fromMaybe "bitcoinrpc" mUser
         pasw = fromMaybe "5065458a4d12058ed9b2ab666f795b17" mPass
@@ -197,6 +158,18 @@ getBTCAuth = do
                                , " using user "
                                , T.unpack user
                                ]
-    return btcA
+    return $ BTCCfg btcA
+
+
+getMongoCfg :: Initializer App App MongoCfg
+getMongoCfg = do
+    cfg'          <- getSnapletUserConfig
+    mConnections  <- liftIO $ Cfg.lookup cfg' "mdb_connections"
+    mHost         <- liftIO $ Cfg.lookup cfg' "mdb_host"
+    mName         <- liftIO $ Cfg.lookup cfg' "mdb_name"
+    let c = fromMaybe 10 mConnections
+        h = fromMaybe "127.0.0.1" mHost
+        n = fromMaybe "elxa_devel" mName
+    return $ MongoCfg c h n
 
 

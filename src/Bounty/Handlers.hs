@@ -15,6 +15,7 @@ import Snap.Snaplet.Heist
 import Database.MongoDB
 import Data.Maybe
 import Control.Monad.State
+import App.Configs
 import qualified Network.Bitcoin       as BTC
 import qualified Heist.Interpreted     as I
 import qualified Data.Text             as T
@@ -38,7 +39,7 @@ bountyIdForUserRepoIssue u r i = do
                                                    , _issue = i
                                                    , _repo = r
                                                    }
-    return $ case e of 
+    return $ case e of
         Right [doc] -> do valOid <- look "_id" doc
                           fmap show (cast' valOid :: Maybe ObjectId)
         _           -> Nothing
@@ -58,12 +59,12 @@ handleGithubBounty = method GET $ do
         Left _          -> printStuff msg
         Right (u, r, i) -> do let u' = T.pack u
                                   r' = T.pack r
-                              mbId <- bountyIdForUserRepoIssue u' r' i 
+                              mbId <- bountyIdForUserRepoIssue u' r' i
                               case mbId of
                                   Just bId -> redirect $ B.pack ("/bounty/" ++ bId)
                                   Nothing  -> do b   <- liftIO getNewBounty
                                                  app <- get
-                                                 a   <- liftIO $ BTC.getNewAddress (_btcAuth app) $ fmap (T.pack . show) $ _id b 
+                                                 a   <- liftIO $ BTC.getNewAddress (_btcAuth $ _btcCfg $ _cfg app) $ fmap (T.pack . show) $ _id b
                                                  let b'      = b { _user  = u'
                                                                  , _repo  = r'
                                                                  , _issue = i
@@ -84,15 +85,15 @@ handleBountyStatus = method  GET $ do
                            Just b  -> printBounties [fromMaybe emptyBounty $ docToBounty b]
 
 
-
 handleProgressTestBountyStatus :: Handler App App ()
 handleProgressTestBountyStatus = do
-    isTesting <- getIsTestingEnv
+    isTesting <- fmap (_appTesting . _cfg) get
     if isTesting then progressTestBounty else handleHttpErr 404
+
 
 progressTestBounty :: Handler App App ()
 progressTestBounty = do
-    True <- getIsTestingEnv
+    True <- fmap (_appTesting . _cfg) get
     mBId <- getStringParam "bounty"
     mDoc <- findBounty $ fromMaybe "" mBId
     if isNothing mDoc
