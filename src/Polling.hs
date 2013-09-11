@@ -8,22 +8,34 @@ import           Control.Concurrent.STM
 import           Control.Monad
 import           Data.Maybe
 import           Data.Monoid
+import           Data.Aeson
+import           Data.Vector    ( empty, mapM )
 import           Database.MongoDB hiding     ( auth )
 import           Clock
 import           App.Stats
 import           App.Configs
 import           Bounty
+import           Network.Bitcoin
 
 
 poll :: TMVar Double    -- ^ Time of the last poll.
      -> AppCfg          -- ^ The app configuration.
      -> IO ()
 poll tm cfg = void $ forkIO $ do
-    let host' = host $ _dbHost $ _mongoCfg cfg
-        db = _dbName $ _mongoCfg cfg
+    let host'    = host $ _dbHost $ _mongoCfg cfg
+        db       = _dbName $ _mongoCfg cfg
         duration = _appPollDuration cfg
+        btcA     = _btcAuth $ _btcCfg cfg
     pipe <- runIOE $ connect host'
     void $ forever $ do
+        -- Lookup all unspent funds.
+        vUnspent <- listUnspent btcA Nothing Nothing empty
+        putStrLn "Unspent funds:\n"
+        print $ toJSON vUnspent
+        -- Gather all the info associated with those unspent transactions.
+        vTxs     <- Data.Vector.mapM (\u -> getOutputInfo btcA (unspentTransactionId u) 1) vUnspent
+        putStrLn "Unspent transactions:"
+        print vTxs
         -- Lookup all bounties and check their statuses by
         -- comparing their update times and balances.
         eAccounts <- access pipe master db getAllAccountStrings
@@ -45,7 +57,7 @@ poll tm cfg = void $ forkIO $ do
                           let lastDur = t' - t
                               a'  = AppStats { _pollDurations = [lastDur] }
                               a'' = a `mappend` a'
-                              avg = sum (_pollDurations a'') / fromIntegral (length (_pollDurations a''))
+                              avg = Prelude.sum (_pollDurations a'') / fromIntegral (Prelude.length (_pollDurations a''))
                               doc = appStatsToDoc a''
 
 

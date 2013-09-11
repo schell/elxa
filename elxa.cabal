@@ -36,6 +36,8 @@ executable elxa
     configurator                 >= 0.2.0.2,
     monad-control                >= 0.3.2.1,
     stm                          >= 2.4.2,
+    aeson                        >= 0.6.1.0,
+    vector,
     network-bitcoin,
     old-locale
 
