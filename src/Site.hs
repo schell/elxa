@@ -36,7 +36,6 @@ import           Application
 import           Bounty
 import           Github.Handlers
 import           Clock
-import           Polling
 import           App.Configs
 
 
@@ -80,7 +79,7 @@ routes = [ ("/login",    with auth handleLoginSubmit)
          , ("/github/:user/:repo/issue/:issue", handleGithubUserRepoIssue)
          , ("/bounty/github/:user/:repo/:issue", handleGithubBounty)
          , ("/bounty/:bounty", handleBountyStatus)
-         , ("/bounty/:bounty/progress", handleProgressTestBountyStatus)
+         , ("/tx/:txid", handleTXUpdate)
          , ("", serveDirectory "static")
          ]
 
@@ -100,7 +99,7 @@ app = makeSnaplet "app" "The BTC based bounty service." Nothing $ do
 
     appCfg@(AppCfg _ _ mCfg bCfg) <- getAppCfg
 
-    d <- nestMongoDBSnaplet mCfg 
+    d <- nestMongoDBSnaplet mCfg
 
     addRoutes routes
     addAuthSplices h auth
@@ -112,9 +111,6 @@ app = makeSnaplet "app" "The BTC based bounty service." Nothing $ do
     tm  <- liftIO $ do
         t  <- getTime
         atomically $ newTMVar t
-
-    tid <- liftIO $ poll tm appCfg
-    liftIO $ print tid
 
     return $ App h s a d appCfg tm
 
@@ -149,16 +145,18 @@ getBTCCfg = do
     mUrl  <- liftIO $ Cfg.lookup cfg' "btc_url"
     mUser <- liftIO $ Cfg.lookup cfg' "btc_user"
     mPass <- liftIO $ Cfg.lookup cfg' "btc_pass"
+    mConfs<- liftIO $ Cfg.lookup cfg' "btc_confs"
     let url  = fromMaybe "http://localhost:18332" mUrl
         user = fromMaybe "bitcoinrpc" mUser
-        pasw = fromMaybe "5065458a4d12058ed9b2ab666f795b17" mPass
+        pasw = fromMaybe "bitcoinrpcpassword" mPass
+        conf = maybe 0 read mConfs
         btcA = BTC.Auth url user pasw
     liftIO $ putStrLn $ concat [ "Connecting to bitcoind at "
                                , T.unpack url
                                , " using user "
                                , T.unpack user
                                ]
-    return $ BTCCfg btcA
+    return $ BTCCfg btcA conf
 
 
 getMongoCfg :: Initializer App App MongoCfg

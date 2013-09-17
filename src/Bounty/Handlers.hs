@@ -2,20 +2,22 @@
 module Bounty.Handlers where
 
 
-import Application
-import Bounty.Bounty
-import Bounty.Database
-import Bounty.Renders
-import Github.Handlers
-import HandlerUtils
-import Snap.Core
-import Snap.Snaplet
-import Snap.Snaplet.MongoDB
-import Snap.Snaplet.Heist
-import Database.MongoDB
-import Data.Maybe
-import Control.Monad.State
-import App.Configs
+import           Application
+import           Bounty.Bounty
+import           Bounty.Database
+import           Bounty.Renders
+import           Github.Handlers
+import           HandlerUtils
+import           Snap.Core
+import           Snap.Snaplet
+import           Snap.Snaplet.MongoDB
+import           Snap.Snaplet.Heist
+import           Database.MongoDB
+import           Data.Maybe
+import           Data.List ( nub )
+import           Data.Vector ( toList )
+import           Control.Monad.State
+import           App.Configs
 import qualified Network.Bitcoin       as BTC
 import qualified Heist.Interpreted     as I
 import qualified Data.Text             as T
@@ -104,5 +106,26 @@ progressTestBounty = do
            in do bty' <- liftIO $ progressStatus bty
                  _    <- eitherWithDB (save "test_bounties" $ bountyToDoc bty')
                  printBounties [bty']
+
+
+handleTXUpdate :: Handler App App ()
+handleTXUpdate = do
+    mTXID <- getStringParam "txid"
+    when (isJust mTXID) $ do
+        app <- get
+        let btcfg = _btcCfg $ _cfg app
+            btcA  = _btcAuth btcfg
+            confs = _btcNumConf btcfg
+        o <- liftIO $ BTC.getOutputInfo btcA (T.pack $ fromJust mTXID) 0
+        let addresses = toList $ BTC.sspkAddresses $ BTC.oiScriptPubKey o
+        accounts <- liftIO $ fmap nub $ mapM (BTC.getAccount btcA) addresses
+        amounts  <- liftIO $ mapM (flip (BTC.getReceivedByAccount' btcA) confs) accounts
+        let amounts' = fmap (fromRational . toRational) amounts :: [Double]
+        es  <- zipWithM updateBountyFunding (fmap T.unpack accounts) amounts'
+        es' <- mapM updateBountyStatus' es
+        printStuff $ show es'
+  where updateBountyStatus' (Right obj) = updateBountyStatus obj
+        updateBountyStatus' (Left f)    = return $ Left f 
+
 
 

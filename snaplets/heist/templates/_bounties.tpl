@@ -10,6 +10,7 @@
             <th>Bounty Updated</th>
             <th>Bounty Address</th>
             <th>Bounty Status</th>
+            <th>Bounty Total</th>
         </tr>
     </thead>
     <tbody>

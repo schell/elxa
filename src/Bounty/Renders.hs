@@ -32,6 +32,7 @@ renderBounty = I.callTemplate "_bounty" . splices
                       , ("bountyUpdated", T.pack $ formatUTC $ _updated b)
                       , ("bountyAddress", T.pack $ show $ _addy b)
                       , ("bountyStatus", statusString $ _status b)
+                      , ("bountyTotal", T.pack $ show $ _total b)
                       ]
 
 

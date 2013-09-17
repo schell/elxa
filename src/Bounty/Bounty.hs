@@ -15,6 +15,7 @@ import qualified Data.Text as T
 
 data BountyStatus = BountyAwaitingFunds
                   | BountyFunded
+                  | BountyConfirmed
                   | BountyEscrow
                   | BountyPaid
                   | BountyUnknown deriving (Show, Eq, Typeable)
@@ -28,6 +29,7 @@ data Bounty = GithubBounty { _id      :: Maybe ObjectId
                            , _status  :: BountyStatus
                            , _created :: UTCTime
                            , _updated :: UTCTime
+                           , _total   :: Double
                            } deriving (Eq)
 
 instance Show Bounty where
@@ -39,18 +41,20 @@ instance Show Bounty where
                               , show $ _status b
                               , formatTime defaultTimeLocale rfc822DateFormat $ _created b
                               , formatTime defaultTimeLocale rfc822DateFormat $ _updated b
+                              , show $ _total b
                               ]
 
 
 emptyBounty :: Bounty
-emptyBounty = GithubBounty { _id   = Nothing
-                           , _addy = Nothing
-                           , _user = ""
-                           , _repo = ""
-                           , _issue = 0
-                           , _status = BountyUnknown
+emptyBounty = GithubBounty { _id      = Nothing
+                           , _addy    = Nothing
+                           , _user    = ""
+                           , _repo    = ""
+                           , _issue   = 0
+                           , _status  = BountyUnknown
                            , _created = zeroDay
                            , _updated = zeroDay
+                           , _total   = 0
                            }
 
 
@@ -71,6 +75,7 @@ instance Val BountyStatus where
 
 statusString :: BountyStatus -> T.Text
 statusString BountyAwaitingFunds = "awaiting funds"
+statusString BountyConfirmed = "confirmed"
 statusString BountyFunded = "funded"
 statusString BountyEscrow = "awaiting distribution approval"
 statusString BountyPaid = "paid out"
@@ -82,7 +87,7 @@ statusValue = String . statusString
 
 
 allStatuses :: [BountyStatus]
-allStatuses = [BountyAwaitingFunds, BountyFunded, BountyEscrow, BountyPaid, BountyUnknown]
+allStatuses = [BountyAwaitingFunds, BountyFunded, BountyConfirmed, BountyEscrow, BountyPaid, BountyUnknown]
 
 
 allStatusValues :: [Value]
@@ -121,6 +126,7 @@ bountyToDoc b@GithubBounty{} =
     , "status"  =: _status b
     , "created" =: _created b
     , "updated" =: _updated b
+    , "total"   =: _total b
     ] ++ obj ++ addy
         where obj = case _id b of
                         Nothing  -> []
@@ -148,16 +154,19 @@ docToBounty d = do
     q' <- cast' q
     s  <- look "status" d
     s' <- cast' s
+    m  <- look "total" d
+    m' <- cast' m
     b  <- makeBounty t' u' r' i' s'
     return $ b { _id   = cast' o
                , _addy = cast' a :: Maybe T.Text
                , _created = c'
                , _updated = q'
+               , _total   = m'
                }
 
 
 makeBounty :: T.Text -> T.Text -> T.Text -> Int -> BountyStatus -> Maybe Bounty
-makeBounty "github" u r i s = Just $ GithubBounty Nothing Nothing u r i s t t
+makeBounty "github" u r i s = Just $ GithubBounty Nothing Nothing u r i s t t 0
     where t = zeroDay
 makeBounty _ _ _ _ _ = Nothing
 
@@ -167,10 +176,13 @@ zeroDay = UTCTime (ModifiedJulianDay 0) (secondsToDiffTime 0)
 
 
 progressStatus :: Bounty -> IO Bounty
-progressStatus b = do
-    t <- getCurrentTime
-    return $ b { _updated = t
-               , _status = nextStatus $ _status b
-               }
+progressStatus b
+  | _total b > 0.0001 && _status b == BountyAwaitingFunds = progress b BountyFunded
+  | _total b > 0.0001 && _status b == BountyFunded = progress b BountyConfirmed
+  | otherwise = progress b $ _status b
+      where progress b' s = do t <- getCurrentTime
+                               return $ b' { _updated = t
+                                           , _status = s 
+                                           }
 
 

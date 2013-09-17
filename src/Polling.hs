@@ -30,12 +30,10 @@ poll tm cfg = void $ forkIO $ do
     void $ forever $ do
         -- Lookup all unspent funds.
         vUnspent <- listUnspent btcA Nothing Nothing empty
-        putStrLn "Unspent funds:\n"
-        print $ toJSON vUnspent
         -- Gather all the info associated with those unspent transactions.
-        vTxs     <- Data.Vector.mapM (\u -> getOutputInfo btcA (unspentTransactionId u) 1) vUnspent
+        vTxs     <- Data.Vector.mapM (\u -> getOutputInfo btcA (unspentTransactionId u) 0) vUnspent
         putStrLn "Unspent transactions:"
-        print vTxs
+        --print vTxs
         -- Lookup all bounties and check their statuses by
         -- comparing their update times and balances.
         eAccounts <- access pipe master db getAllAccountStrings

@@ -25,4 +25,8 @@
     <td>
         <bountyStatus />
     </td>
+    <td>
+        <bountyTotal />
+    </td>
 </tr>
+

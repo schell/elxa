@@ -18,5 +18,7 @@ data MongoCfg = MongoCfg { _dbConnections :: Int
                          } deriving (Show, Eq)
 
 
-data BTCCfg = BTCCfg { _btcAuth :: Auth } deriving (Eq, Show)
+data BTCCfg = BTCCfg { _btcAuth    :: Auth
+                     , _btcNumConf :: Int
+                     } deriving (Eq, Show)
 

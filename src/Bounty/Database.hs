@@ -6,11 +6,12 @@ module Bounty.Database where
 import Bounty.Bounty
 import Snap.Snaplet.MongoDB
 import Database.MongoDB
-import Control.Monad.State
+import Control.Monad.State          ( MonadIO, MonadState )
+import Control.Monad.IO.Class       ( liftIO )
 import Control.Monad.Trans.Control
 import Control.Applicative
 import Data.Maybe
-import Data.Text ( Text )
+import Data.Text                    ( Text )
 
 
 bountyCollection :: Text
@@ -46,4 +47,29 @@ findBounty bId = do
     return $ case e of
         Left _ -> Nothing
         Right mB -> mB
+
+
+updateBountyFunding :: (Val v, MonadState app m, MonadIO m, HasMongoDB app) => String -> v -> m (Either Failure ObjectId)
+updateBountyFunding bId amount = do
+    let obj = read bId :: ObjectId
+    e <- eitherWithDB $ modify (select ["_id" =: obj] bountyCollection) ["$set" =: ["total" =: amount]]
+    return $ case e of
+        Right _ -> Right obj
+        Left l  -> Left l
+
+
+updateBountyStatus :: (MonadState app m, MonadIO m, HasMongoDB app) => ObjectId -> m (Either Failure ())
+updateBountyStatus obj = do
+    e <- eitherWithDB $ findOne (select ["_id" =: obj] bountyCollection)
+    case e of
+        Left l           -> return $ Left l
+        Right Nothing    -> return $ Left $ DocNotFound $ select ["_id" =: obj] bountyCollection
+        Right (Just doc) -> do let mB = docToBounty doc
+                               case mB of
+                                   Nothing -> return $ Left $ QueryFailure 0 $ "Could not coerce Bounty " ++ show obj
+                                   Just b  -> do b' <- liftIO $ progressStatus b
+                                                 let doc' = bountyToDoc b'
+                                                 eitherWithDB $ save bountyCollection doc'
+
+
 
