@@ -15,21 +15,19 @@ executable elxa
   main-is:        Main.hs
 
   build-depends:
-    bytestring                   >= 0.9.1   && < 0.11,
-    heist                        >= 0.12    && < 0.13,
-    MonadCatchIO-transformers    >= 0.2.1   && < 0.4,
-    mtl                          >= 2       && < 3,
-    snap                         >= 0.11    && < 0.13,
-    snap-core                    >= 0.9     && < 0.11,
-    snap-server                  >= 0.9     && < 0.11,
-    snap-loader-static           >= 0.9     && < 0.10,
-    text                         >= 0.11    && < 0.12,
-    time                         >= 1.1     && < 1.5,
+    bytestring                   >= 0.9.1,
+    heist                        >= 0.12,
+    MonadCatchIO-transformers    >= 0.2.1,
+    mtl                          >= 2,
+    snap                         >= 0.11,
+    snap-core                    >= 0.9,
+    snap-server                  >= 0.9,
+    snap-loader-static           >= 0.9,
+    text                         >= 0.11,
+    time                         >= 1.1,
     xmlhtml                      >= 0.1,
-    base                         >= 4.4     && < 5,
-    lens                         >= 3.7.6   && < 3.10,
-    github                       >= 0.7.1,
-    snaplet-acid-state           >= 0.2.4,
+    base                         >= 4.4,
+    lens                         >= 3.7.6,
     transformers                 >= 0.3.0.0,
     mongoDB                      >= 1.4.1,
     snaplet-mongodb-minimalistic >= 0.0.6.10,
@@ -37,8 +35,10 @@ executable elxa
     monad-control                >= 0.3.2.1,
     stm                          >= 2.4.2,
     aeson                        >= 0.6.1.0,
+
     vector,
     network-bitcoin,
+    github,
     old-locale
 
 

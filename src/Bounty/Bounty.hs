@@ -178,6 +178,7 @@ zeroDay = UTCTime (ModifiedJulianDay 0) (secondsToDiffTime 0)
 progressStatus :: Bounty -> IO Bounty
 progressStatus b
   | _total b > 0.0001 && _status b == BountyAwaitingFunds = progress b BountyFunded
+  -- TODO: Actually check number of confirmations here. 
   | _total b > 0.0001 && _status b == BountyFunded = progress b BountyConfirmed
   | otherwise = progress b $ _status b
       where progress b' s = do t <- getCurrentTime
