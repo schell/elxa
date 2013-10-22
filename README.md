@@ -9,5 +9,4 @@ installation
 ------------
 External things needed are
  * bitcoind
- * mongodb
 
