@@ -18,7 +18,7 @@ import System.Clock
 
 getTime :: IO Double
 getTime =
-    toSeconds <$> getTime Monotonic
+    toSeconds <$> System.Clock.getTime Monotonic
   where
     toSeconds (TimeSpec seconds nanos) =
         fromIntegral seconds + fromIntegral nanos * 10**(-9)

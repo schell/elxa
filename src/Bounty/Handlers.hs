@@ -3,6 +3,7 @@ module Bounty.Handlers where
 
 
 import           Application
+import           Bounty.Types
 import           Bounty.Bounty
 import           Bounty.Database
 import           Bounty.Renders
@@ -10,41 +11,18 @@ import           Github.Handlers
 import           HandlerUtils
 import           Snap.Core
 import           Snap.Snaplet
-import           Snap.Snaplet.MongoDB
 import           Snap.Snaplet.Heist
-import           Database.MongoDB
+import           Snap.Snaplet.AcidState
 import           Data.Maybe
 import           Data.List ( nub )
 import           Data.Vector ( toList )
 import           Control.Monad.State
-import           App.Configs
+import           App.Types
+import           Data.Time.Clock
 import qualified Network.Bitcoin       as BTC
 import qualified Heist.Interpreted     as I
 import qualified Data.Text             as T
 import qualified Data.ByteString.Char8 as B
-
-
-createBounty :: (HasMongoDB v, HasHeist b) => Bounty -> Handler b v ()
-createBounty b = do
-    e <- eitherWithDB $ findBounties b
-    case e of
-        Left err -> printStuff $ show err
-        Right [] -> do e' <- eitherWithDB $ newBounty b
-                       either (printStuff . show) (printBounties . (:[])) e'
-        Right bs -> do let bs' = mapMaybe docToBounty bs
-                       liftIO $ print bs'
-                       printBounties bs'
-
-bountyIdForUserRepoIssue :: T.Text -> T.Text -> Int -> Handler App App (Maybe String)
-bountyIdForUserRepoIssue u r i = do
-    e <- eitherWithDB $ findBounties $ emptyBounty { _user = u
-                                                   , _issue = i
-                                                   , _repo = r
-                                                   }
-    return $ case e of
-        Right [doc] -> do valOid <- look "_id" doc
-                          fmap show (cast' valOid :: Maybe ObjectId)
-        _           -> Nothing
 
 
 printBounties :: HasHeist b => [Bounty] -> Handler b v ()
@@ -59,32 +37,44 @@ handleGithubBounty = method GET $ do
     eParams <- getIssueParams
     case eParams of
         Left _          -> printStuff msg
-        Right (u, r, i) -> do let u' = T.pack u
-                                  r' = T.pack r
-                              mbId <- bountyIdForUserRepoIssue u' r' i
-                              case mbId of
-                                  Just bId -> redirect $ B.pack ("/bounty/" ++ bId)
-                                  Nothing  -> do b   <- liftIO getNewBounty
-                                                 app <- get
-                                                 a   <- liftIO $ BTC.getNewAddress (_btcAuth $ _btcCfg $ _cfg app) $ fmap (T.pack . show) $ _id b
-                                                 let b'      = b { _user  = u'
-                                                                 , _repo  = r'
-                                                                 , _issue = i
-                                                                 , _addy  = Just a
-                                                                 }
-                                                 createBounty b'
-    where msg = "To open a github bounty you need a user, repo and issue number."
+        Right (u, r, i) -> do let u' = BountyUser $ T.pack u
+                                  r' = BountyRepo $ T.pack r
+                                  i' = BountyIssue i
+                              mBounty <- query $ BountyByUserRepoIssue u' r' i'
+                              b' <- maybe 
+                                      (do t   <- liftIO getCurrentTime 
+                                          b   <- update $ NewBounty t
+                                          app <- get
+                                          a   <- liftIO $ BTC.getNewAddress (_btcAuth $ _btcCfg $ _cfg app) $ Just $ (T.pack . show . getBountyIdInt) b
+                                          let b' = b { _user  = u'
+                                                     , _repo  = r'
+                                                     , _issue = i'
+                                                     , _addy  = BountyAddy a
+                                                     , _status = BountyAwaitingFunds
+                                                     }
+                                          void $ update $ UpdateBounty b'
+                                          return b')
+                                      return
+                                      mBounty 
+                              redirect $ B.pack ("/bounty/" ++ show (getBountyIdInt b'))
+  where msg = "To open a github bounty you need a user, repo and issue number."
 
 
 handleBountyStatus :: Handler App App ()
 handleBountyStatus = method  GET $ do
-    mBounty <- getStringParam "bounty"
-    case mBounty of
+    mBid <- getIntegerParam "bounty"
+    case mBid of
         Nothing  -> printStuff "Could not parse bounty."
-        Just bId -> do mB <- findBounty bId
+        Just bId -> do mB <- query $ BountyById $ BountyId bId
                        case mB of
                            Nothing -> handleHttpErr 404
-                           Just b  -> printBounties [fromMaybe emptyBounty $ docToBounty b]
+                           Just b  -> printBounties [b]
+
+
+handleAllBounties :: Handler App App ()
+handleAllBounties = method GET $ do
+    bounties <- query AllBounties
+    printBounties bounties
 
 
 handleProgressTestBountyStatus :: Handler App App ()
@@ -95,17 +85,16 @@ handleProgressTestBountyStatus = do
 
 progressTestBounty :: Handler App App ()
 progressTestBounty = do
-    True <- fmap (_appTesting . _cfg) get
-    mBId <- getStringParam "bounty"
-    mDoc <- findBounty $ fromMaybe "" mBId
-    if isNothing mDoc
-      then handleHttpErr 404
-      else let doc  = fromJust mDoc
-               mB   = docToBounty doc
-               bty  = fromMaybe emptyBounty mB
-           in do bty' <- liftIO $ progressStatus bty
-                 _    <- eitherWithDB (save "test_bounties" $ bountyToDoc bty')
-                 printBounties [bty']
+    True    <- fmap (_appTesting . _cfg) get
+    mBid    <- getIntegerParam "bounty"
+    when (isJust mBid) $ do
+        mBounty <- query $ BountyById $ BountyId $ fromJust mBid
+        if isNothing mBounty
+          then handleHttpErr 404
+          else let bty  = fromMaybe emptyBounty mBounty
+               in do bty' <- liftIO $ progressStatus bty
+                     void $ update $ UpdateBounty bty' 
+                     printBounties [bty']
 
 
 handleTXUpdate :: Handler App App ()
@@ -116,16 +105,28 @@ handleTXUpdate = do
         let btcfg = _btcCfg $ _cfg app
             btcA  = _btcAuth btcfg
             confs = _btcNumConf btcfg
+        -- Get the output info from this tx.
         o <- liftIO $ BTC.getOutputInfo btcA (T.pack $ fromJust mTXID) 0
+        -- Extract a list of addresses. [Address]
         let addresses = toList $ BTC.sspkAddresses $ BTC.oiScriptPubKey o
+        -- Get a list of _unique_ accounts. [Account]
         accounts <- liftIO $ fmap nub $ mapM (BTC.getAccount btcA) addresses
+        -- Get the amounts associated with those accounts.
         amounts  <- liftIO $ mapM (flip (BTC.getReceivedByAccount' btcA) confs) accounts
+        -- Convert some things into the appropriate types.
         let amounts' = fmap (fromRational . toRational) amounts :: [Double]
-        es  <- zipWithM updateBountyFunding (fmap T.unpack accounts) amounts'
+            -- Our bounty ids.
+            bIds     = fmap BountyId $ catMaybes $ fmap (maybeRead . T.unpack) accounts
+        -- Zip our bounty ids and our amounts using the update.
+        es  <- zipWithM (\bId amnt -> update $ UpdateBountyFunding bId amnt) bIds amounts'
+        -- Update their status as well.
         es' <- mapM updateBountyStatus' es
         printStuff $ show es'
-  where updateBountyStatus' (Right obj) = updateBountyStatus obj
-        updateBountyStatus' (Left f)    = return $ Left f 
+  where maybeRead = fmap fst . listToMaybe . reads 
+        updateBountyStatus' (Just b) = do
+            bounty <- liftIO $ progressStatus b 
+            update $ UpdateBounty bounty
+        updateBountyStatus' Nothing = return () 
 
 
 

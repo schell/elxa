@@ -1,75 +1,92 @@
-{-# LANGUAGE OverloadedStrings, ExtendedDefaultRules, DeriveDataTypeable,
-    FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell, DeriveDataTypeable, 
+    OverloadedStrings, ExtendedDefaultRules, FlexibleContexts, 
+    RecordWildCards, TypeFamilies #-}
+
 module Bounty.Database where
 
 
+import Bounty.Types
 import Bounty.Bounty
-import Snap.Snaplet.MongoDB
-import Database.MongoDB
-import Control.Monad.State          ( MonadIO, MonadState )
-import Control.Monad.IO.Class       ( liftIO )
-import Control.Monad.Trans.Control
-import Control.Applicative
+import Data.Time.Clock 
+import Data.IxSet
+import Snap.Snaplet.AcidState
 import Data.Maybe
-import Data.Text                    ( Text )
+import Data.SafeCopy
+import Data.Data                    ( Data, Typeable )
+import Control.Monad.Reader         ( ask )
+import Control.Monad.State          ( get, put, MonadState )
 
 
-bountyCollection :: Text
-bountyCollection = "bounties"
-
-newBounty :: (Applicative m, MonadIO m) => Bounty -> Action m Bounty
-newBounty b = do
-    oid <- insert bountyCollection $ bountyToDoc b
-    return b { _id = cast' oid }
+-- | Acid | --
 
 
-findBounties :: (MonadBaseControl IO m, MonadIO m) => Bounty -> Action m [Document]
-findBounties b = rest =<< find (select fields bountyCollection)
-    where  fields = [ "user"   =: _user b
-                    , "repo"   =: _repo b
-                    , "issue"  =: _issue b
-                    ]
-
-findAllAccounts :: (MonadBaseControl IO m, MonadIO m) => Action m [Document]
-findAllAccounts = rest =<< find (select [] bountyCollection) { project = [ "_id" =: True ]}
-
-getAllAccountStrings :: (MonadBaseControl IO m, MonadIO m) => Action m [String]
-getAllAccountStrings = do
-    docs <- findAllAccounts
-    return $ catMaybes $ fmap docIdToString docs
-        where docIdToString = fmap show . look "_id"
+data Bounties = Bounties { _nextBountyId :: BountyId
+                         , _bounties     :: IxSet Bounty
+                         } deriving (Data, Typeable)
+deriveSafeCopy 0 'base ''Bounties
 
 
-findBounty :: (MonadIO m, MonadState app m, HasMongoDB app) => String -> m (Maybe Document)
-findBounty bId = do
-    let obj = read bId :: ObjectId
-    e   <- eitherWithDB $ findOne $ select ["_id" =: obj] bountyCollection
-    return $ case e of
-        Left _ -> Nothing
-        Right mB -> mB
+-- | The initial state of our bounties.
+initialBounties :: Bounties 
+initialBounties = Bounties { _nextBountyId = BountyId 1
+                           , _bounties = Data.IxSet.empty
+                           }
 
 
-updateBountyFunding :: (Val v, MonadState app m, MonadIO m, HasMongoDB app) => String -> v -> m (Either Failure ObjectId)
+-- | Create a new, empty bounty and add it to the db.
+newBounty :: UTCTime -> Update Bounties Bounty
+newBounty t = do
+    bs@Bounties{..} <- get
+    let bounty = emptyBounty { _bountyId = _nextBountyId 
+                             , _created = t
+                             , _updated = t
+                             }
+    -- Save the state and increment the nextBountyId.
+    put $ bs { _nextBountyId = succ _nextBountyId
+             , _bounties     = insert bounty _bounties
+             }
+    return bounty
+
+
+-- | Updates a bounty in the db (indexed by BountyId).
+updateBounty :: Bounty -> Update Bounties ()
+updateBounty bounty = do
+    b@Bounties{..} <- get
+    put $ b { _bounties = updateIx (_bountyId bounty) bounty _bounties }
+
+
+-- | Query a bounty indexed by BountyId.
+bountyById :: BountyId -> Query Bounties (Maybe Bounty)
+bountyById bid = do 
+    Bounties{..} <- ask
+    return $ getOne $ _bounties @= bid
+
+
+-- | Query for all bounties.
+allBounties :: Query Bounties [Bounty]
+allBounties = do
+    Bounties{..} <- ask
+    return $ toList _bounties
+
+
+-- | Query a bounty indexed by user, repo and issue number.
+bountyByUserRepoIssue :: BountyUser -> BountyRepo -> BountyIssue -> Query Bounties (Maybe Bounty)
+bountyByUserRepoIssue u r i = do
+    Bounties{..} <- ask
+    return $ getOne $ ((@= i) . (@= r) . (@= u)) _bounties 
+
+-- | Updates the amount of a bounty by id or does nothing if that bounty
+-- does not exist.
+updateBountyFunding :: BountyId -> Double -> Update Bounties (Maybe Bounty) 
 updateBountyFunding bId amount = do
-    let obj = read bId :: ObjectId
-    e <- eitherWithDB $ modify (select ["_id" =: obj] bountyCollection) ["$set" =: ["total" =: amount]]
-    return $ case e of
-        Right _ -> Right obj
-        Left l  -> Left l
+    mBounty <- liftQuery $ bountyById bId
+    if isJust mBounty
+      then do let b = (fromJust mBounty) { _total = amount }
+              updateBounty b
+              return $ Just b
+      else return Nothing
 
 
-updateBountyStatus :: (MonadState app m, MonadIO m, HasMongoDB app) => ObjectId -> m (Either Failure ())
-updateBountyStatus obj = do
-    e <- eitherWithDB $ findOne (select ["_id" =: obj] bountyCollection)
-    case e of
-        Left l           -> return $ Left l
-        Right Nothing    -> return $ Left $ DocNotFound $ select ["_id" =: obj] bountyCollection
-        Right (Just doc) -> do let mB = docToBounty doc
-                               case mB of
-                                   Nothing -> return $ Left $ QueryFailure 0 $ "Could not coerce Bounty " ++ show obj
-                                   Just b  -> do b' <- liftIO $ progressStatus b
-                                                 let doc' = bountyToDoc b'
-                                                 eitherWithDB $ save bountyCollection doc'
-
+$(makeAcidic ''Bounties ['newBounty, 'bountyById, 'bountyByUserRepoIssue, 'updateBounty, 'updateBountyFunding, 'allBounties]) 
 
 

@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Bounty.Renders where
 
+import Bounty.Types
 import Bounty.Bounty
 import Data.Time.Clock
 import Data.Time.Format
@@ -23,10 +24,12 @@ formatUTC = formatTime defaultTimeLocale rfc822DateFormat
 renderBounty :: Monad m => Bounty -> I.Splice m
 renderBounty = I.callTemplate "_bounty" . splices
     where splices = map (second I.textSplice) . texts
-          texts   b = [ ("bountyId", maybe "Nothing" (T.pack . show) $ _id b)
+          unUser (BountyUser u) = u
+          unRepo (BountyRepo r) = r
+          texts   b = [ ("bountyId", (T.pack . show . unBountyId . _bountyId) b)
                       , ("bountyType", "github")
-                      , ("bountyUser", _user b)
-                      , ("bountyRepo", _repo b)
+                      , ("bountyUser", unUser $ _user b)
+                      , ("bountyRepo", unRepo $ _repo b)
                       , ("bountyIssue", T.pack $ show $ _issue b)
                       , ("bountyCreated", T.pack $ formatUTC $ _created b)
                       , ("bountyUpdated", T.pack $ formatUTC $ _updated b)

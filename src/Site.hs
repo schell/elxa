@@ -19,14 +19,13 @@ import           Control.Concurrent.STM
 import           Control.Monad.IO.Class      ( liftIO )
 import           Data.ByteString             ( ByteString )
 import           Data.Maybe
-import           Database.MongoDB hiding     ( auth )
 import           Snap.Core
 import           Snap.Snaplet
 import           Snap.Snaplet.Auth
 import           Snap.Snaplet.Auth.Backends.JsonFile
 import           Snap.Snaplet.Heist
 import           Snap.Snaplet.Session.Backends.CookieSession
-import           Snap.Snaplet.MongoDB
+import           Snap.Snaplet.AcidState
 import           Snap.Util.FileServe
 import qualified Heist.Interpreted      as I
 import qualified Data.Text              as T
@@ -36,7 +35,7 @@ import           Application
 import           Bounty
 import           Github.Handlers
 import           Clock
-import           App.Configs
+import           App.Types
 
 
 handleLogin :: Maybe T.Text -> Handler App (AuthManager App) ()
@@ -78,6 +77,7 @@ routes = [ ("/login",    with auth handleLoginSubmit)
          , ("/github/:user/:repo/issues", handleGithubUserRepoIssues)
          , ("/github/:user/:repo/issue/:issue", handleGithubUserRepoIssue)
          , ("/bounty/github/:user/:repo/:issue", handleGithubBounty)
+         , ("/bounties", handleAllBounties)
          , ("/bounty/:bounty", handleBountyStatus)
          , ("/tx/:txid", handleTXUpdate)
          , ("", serveDirectory "static")
@@ -97,9 +97,10 @@ app = makeSnaplet "app" "The BTC based bounty service." Nothing $ do
     a <- nestSnaplet "auth" auth $
            initJsonFileAuthManager defAuthSettings sess "users.json"
 
-    appCfg@(AppCfg _ _ mCfg bCfg) <- getAppCfg
+    appCfg@(AppCfg _ _ bCfg) <- getAppCfg
 
-    d <- nestMongoDBSnaplet mCfg
+    acid' <- nestSnaplet "acid" acid $ acidInit initialBounties 
+               
 
     addRoutes routes
     addAuthSplices h auth
@@ -112,31 +113,18 @@ app = makeSnaplet "app" "The BTC based bounty service." Nothing $ do
         t  <- getTime
         atomically $ newTMVar t
 
-    return $ App h s a d appCfg tm
-
-
-nestMongoDBSnaplet :: MongoCfg -> Initializer b App (Snaplet MongoDB)
-nestMongoDBSnaplet (MongoCfg c h n) = do
-    liftIO $ putStrLn $ concat [ "Opening pool of "
-                               , show c
-                               , " connections on "
-                               , h
-                               , " using db "
-                               , T.unpack n
-                               ]
-    nestSnaplet "db" db $ mongoDBInit c (host h) n
+    return $ App h s a acid' appCfg tm
 
 
 getAppCfg :: Initializer App App AppCfg
 getAppCfg = do
     btcCfg <- getBTCCfg
-    mdbCfg <- getMongoCfg
     cfg'   <- getSnapletUserConfig
     mPoll  <- liftIO $ Cfg.lookup cfg' "poll_duration"
     mTest  <- liftIO $ Cfg.lookup cfg' "testing"
     let d = fromMaybe 10 mPoll
         t = fromMaybe False mTest
-    return $ AppCfg t d mdbCfg btcCfg
+    return $ AppCfg t d btcCfg
 
 
 getBTCCfg :: Initializer App App BTCCfg
@@ -157,17 +145,5 @@ getBTCCfg = do
                                , T.unpack user
                                ]
     return $ BTCCfg btcA conf
-
-
-getMongoCfg :: Initializer App App MongoCfg
-getMongoCfg = do
-    cfg'          <- getSnapletUserConfig
-    mConnections  <- liftIO $ Cfg.lookup cfg' "mdb_connections"
-    mHost         <- liftIO $ Cfg.lookup cfg' "mdb_host"
-    mName         <- liftIO $ Cfg.lookup cfg' "mdb_name"
-    let c = fromMaybe 10 mConnections
-        h = fromMaybe "127.0.0.1" mHost
-        n = fromMaybe "elxa_devel" mName
-    return $ MongoCfg c h n
 
 

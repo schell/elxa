@@ -8,7 +8,6 @@ bounty.
 installation
 ------------
 External things needed are
- * haskell-platform (ghc, cabal, +batteries)
  * bitcoind
  * mongodb
 
